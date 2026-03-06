@@ -42,18 +42,36 @@ If this is the case:
 If you can't determine the context:
 1. Ask the user: *"Where are the projects you want to map? Give me the path(s)."*
 
-### Port Setup
+### Port & Manifests Setup
 
-Before scanning projects, check if a `.env` file exists in the PPM directory. If not, ask the user to pick a port:
+Before scanning projects, check if a `.env` file exists in the PPM directory. If not, configure it:
+
+**1. Port**
+
+Ask the user to pick a port:
 
 *"What port should PPM run on? Pick something you'll remember so you can always bookmark it. Common choices: 3333, 4444, 5555, 8080."*
+
+**2. Manifests location**
+
+By default, manifests live in PPM's local `manifests/` folder. But the user might want them elsewhere. Ask:
+
+*"Where should I store your project manifests? Options:"*
+- **Default (`manifests/` inside PPM)** - simplest, everything in one place
+- **A shared folder** - useful if you want teammates to access manifests, or if you sync via Dropbox/iCloud/Google Drive
+- **A separate private repo** - good if PPM is public but your project data is private
+
+If they choose an external location:
+- Verify the directory exists (create it if needed)
+- Set `MANIFESTS_DIR` in `.env` to the absolute path
 
 Create the `.env` file:
 ```
 PORT=<chosen-port>
+MANIFESTS_DIR=<path-to-manifests>   # only if external, omit for default
 ```
 
-This ensures they always come back to the same URL.
+This ensures they always come back to the same URL and manifests location.
 
 ---
 
@@ -152,7 +170,7 @@ Each flow is an ordered list of screen and/or entity IDs. Create 2-5 flows for a
 
 ## Step 3: Generate Manifests
 
-For each project, create a manifest file at `manifests/{project-id}.json`.
+For each project, create a manifest file at `{manifests-dir}/{project-id}.json` (where `{manifests-dir}` is either the local `manifests/` folder or the custom `MANIFESTS_DIR` path configured in `.env`).
 
 **Naming convention:**
 - Single word: `my-app.json`
@@ -232,7 +250,7 @@ After generating manifests:
 
 2. **Ask for review**: *"Want me to walk through any of these, or should I save them all?"*
 
-3. **Save** the manifests to `manifests/`
+3. **Save** the manifests to the configured manifests directory
 
 4. **Remove examples** (optional): Ask the user if they want to keep or delete the example manifests (`example-saas.json`, `example-blog.json`)
 

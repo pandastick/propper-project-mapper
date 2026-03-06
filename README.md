@@ -62,11 +62,25 @@ If you use [SwiftBar](https://swiftbar.app), PPM includes a menu bar plugin for 
 
 You get a menu bar item showing `P:3` (number of mapped projects) when running, or `P:off` when stopped. Click to start, stop, open in browser, or open the folder.
 
+### Custom Manifests Directory
+
+By default, PPM reads manifests from the local `manifests/` folder. If you want to store your manifests elsewhere - for example in a shared team folder, a Dropbox/iCloud directory, or a separate private repo - set `MANIFESTS_DIR` in your `.env`:
+
+```bash
+echo "PORT=3333" > .env
+echo "MANIFESTS_DIR=/path/to/my/shared-manifests" >> .env
+```
+
+This is useful when:
+- You want to **share manifests with your team** without sharing the PPM app itself
+- PPM is nested inside a project but you want manifests in a central location
+- You keep manifests in a **private repo** separate from the open-source tool
+
 ## How It Works
 
-PPM reads **manifest files** from the `manifests/` folder - one JSON file per project. Each manifest defines your project's conceptual architecture: what screens exist, what data entities the system uses, how they relate, and what user flows connect them.
+PPM reads **manifest files** from the `manifests/` folder (or your custom `MANIFESTS_DIR`). Each manifest defines your project's conceptual architecture: what screens exist, what data entities the system uses, how they relate, and what user flows connect them.
 
-Drop a new `.json` file in `manifests/` and it appears in the dropdown. Click "Refresh" to reload from disk while the server runs.
+Drop a new `.json` file in the manifests directory and it appears in the dropdown. Click "Refresh" to reload from disk while the server runs.
 
 ## Setting Up Your Projects
 
@@ -235,7 +249,7 @@ propper-project-mapper/
   server.js           Express server, serves manifests as API
   package.json        Dependencies (just express)
   agent.md            Instructions for AI agents to auto-setup
-  .env                Your port config (created by you, git-ignored)
+  .env                Port + optional MANIFESTS_DIR (created by you, git-ignored)
   manifests/          One JSON per project
     example-saas.json
     example-blog.json
