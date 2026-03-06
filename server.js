@@ -13,7 +13,7 @@ if (fs.existsSync(envPath)) {
 
 const app = express();
 const PORT = process.env.PORT || 3333;
-const MANIFESTS_DIR = path.join(__dirname, "manifests");
+const MANIFESTS_DIR = process.env.MANIFESTS_DIR || path.join(__dirname, "manifests");
 
 app.use(express.static(path.join(__dirname, "public")));
 
