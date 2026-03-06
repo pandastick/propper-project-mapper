@@ -1,0 +1,152 @@
+{
+  "id": "example-blog",
+  "name": "Example Blog Platform",
+  "description": "A simpler demo showing a blog/CMS with fewer sections - demonstrates that not every project needs to be complex.",
+  "tech": "Astro, MDX, Tailwind",
+
+  "sections": [
+    { "id": "public", "name": "Public Site", "icon": "globe" },
+    { "id": "admin", "name": "Admin CMS", "icon": "pen-tool" }
+  ],
+
+  "screens": [
+    {
+      "id": "homepage",
+      "name": "Homepage",
+      "route": "/",
+      "section": "public",
+      "description": "Landing page with featured posts and categories",
+      "status": "live",
+      "elements": [
+        { "name": "Hero Section", "type": "section", "notes": "Featured post with large image" },
+        { "name": "Recent Posts Grid", "type": "cards", "notes": "Latest 6 posts as cards" },
+        { "name": "Category Tags", "type": "tags", "notes": "Clickable category filters" },
+        { "name": "Newsletter Signup", "type": "form", "notes": "Email capture" }
+      ]
+    },
+    {
+      "id": "post-page",
+      "name": "Post Page",
+      "route": "/blog/:slug",
+      "section": "public",
+      "description": "Individual blog post with comments",
+      "status": "live",
+      "elements": [
+        { "name": "Post Content", "type": "display", "notes": "Rendered MDX content" },
+        { "name": "Author Card", "type": "cards", "notes": "Author name, bio, avatar" },
+        { "name": "Related Posts", "type": "list", "notes": "3 related posts by tag" },
+        { "name": "Comments Section", "type": "list", "notes": "Threaded comments" },
+        { "name": "Comment Form", "type": "form", "notes": "Add a comment (auth required)" }
+      ]
+    },
+    {
+      "id": "category-page",
+      "name": "Category",
+      "route": "/category/:slug",
+      "section": "public",
+      "description": "Posts filtered by category",
+      "status": "live",
+      "elements": [
+        { "name": "Category Header", "type": "display", "notes": "Category name and description" },
+        { "name": "Post List", "type": "cards", "notes": "Paginated post cards" }
+      ]
+    },
+    {
+      "id": "admin-posts",
+      "name": "Manage Posts",
+      "route": "/admin/posts",
+      "section": "admin",
+      "description": "List and manage all blog posts",
+      "status": "live",
+      "access": "admin",
+      "elements": [
+        { "name": "Posts Table", "type": "table", "notes": "Title, status, date, author" },
+        { "name": "Search", "type": "input", "notes": "Filter by title" },
+        { "name": "Status Filter", "type": "dropdown", "notes": "Draft, published, archived" },
+        { "name": "New Post Button", "type": "button", "notes": "Opens editor" }
+      ]
+    },
+    {
+      "id": "post-editor",
+      "name": "Post Editor",
+      "route": "/admin/posts/:id/edit",
+      "section": "admin",
+      "description": "MDX editor for creating and editing posts",
+      "status": "live",
+      "access": "admin",
+      "elements": [
+        { "name": "Title Input", "type": "input", "notes": "Post title" },
+        { "name": "MDX Editor", "type": "form", "notes": "Rich text editor with MDX support" },
+        { "name": "Category Selector", "type": "tags", "notes": "Multi-select categories" },
+        { "name": "Featured Image", "type": "button", "notes": "Upload/select image" },
+        { "name": "Publish Controls", "type": "controls", "notes": "Save draft, schedule, publish" }
+      ]
+    },
+    {
+      "id": "admin-comments",
+      "name": "Manage Comments",
+      "route": "/admin/comments",
+      "section": "admin",
+      "description": "Moderate user comments",
+      "status": "live",
+      "access": "admin",
+      "elements": [
+        { "name": "Comments Table", "type": "table", "notes": "Content, author, post, status" },
+        { "name": "Approve/Reject Buttons", "type": "button", "notes": "Moderate comments" }
+      ]
+    }
+  ],
+
+  "entities": [
+    {
+      "id": "post",
+      "name": "Post",
+      "description": "A blog post with MDX content",
+      "fields": ["id", "title", "slug", "content", "excerpt", "status", "featured_image", "author_id", "published_at"],
+      "screens": ["homepage", "post-page", "category-page", "admin-posts", "post-editor"]
+    },
+    {
+      "id": "category",
+      "name": "Category",
+      "description": "Content category for organizing posts",
+      "fields": ["id", "name", "slug", "description"],
+      "screens": ["homepage", "category-page", "post-editor"]
+    },
+    {
+      "id": "comment",
+      "name": "Comment",
+      "description": "User comment on a blog post",
+      "fields": ["id", "content", "author_name", "author_email", "post_id", "parent_id", "status", "created_at"],
+      "screens": ["post-page", "admin-comments"]
+    },
+    {
+      "id": "author",
+      "name": "Author",
+      "description": "Blog post author",
+      "fields": ["id", "name", "email", "bio", "avatar_url"],
+      "screens": ["post-page", "admin-posts"]
+    }
+  ],
+
+  "relationships": [
+    { "from": "author", "to": "post", "label": "writes", "type": "one-to-many" },
+    { "from": "post", "to": "category", "label": "belongs to", "type": "many-to-many" },
+    { "from": "post", "to": "comment", "label": "has", "type": "one-to-many" },
+    { "from": "comment", "to": "comment", "label": "replies to", "type": "one-to-many" }
+  ],
+
+  "flows": [
+    {
+      "id": "reading",
+      "name": "Reader Journey",
+      "description": "User discovers and reads content",
+      "steps": ["homepage", "category-page", "post-page"]
+    },
+    {
+      "id": "publishing",
+      "name": "Publishing Flow",
+      "description": "Author creates and publishes a post",
+      "steps": ["admin-posts", "post-editor", "post"]
+    }
+  ]
+}

@@ -1,0 +1,226 @@
+{
+  "id": "example-saas",
+  "name": "Example SaaS App",
+  "description": "A demo project showing how Propper maps a typical SaaS application with auth, dashboard, settings, and billing.",
+  "tech": "Next.js, Supabase, Tailwind, Stripe",
+
+  "sections": [
+    { "id": "auth", "name": "Auth", "icon": "lock" },
+    { "id": "dashboard", "name": "Dashboard", "icon": "layout-dashboard" },
+    { "id": "settings", "name": "Settings", "icon": "settings" },
+    { "id": "billing", "name": "Billing", "icon": "credit-card" }
+  ],
+
+  "screens": [
+    {
+      "id": "login",
+      "name": "Login",
+      "route": "/login",
+      "section": "auth",
+      "description": "Email/password login with OAuth options",
+      "status": "live",
+      "elements": [
+        { "name": "Email Input", "type": "input", "notes": "Email field with validation" },
+        { "name": "Password Input", "type": "input", "notes": "Password field" },
+        { "name": "Login Button", "type": "button", "notes": "Submits credentials" },
+        { "name": "OAuth Buttons", "type": "button", "notes": "Google, GitHub SSO" },
+        { "name": "Signup Link", "type": "button", "notes": "Navigates to /signup" }
+      ]
+    },
+    {
+      "id": "signup",
+      "name": "Signup",
+      "route": "/signup",
+      "section": "auth",
+      "description": "New user registration",
+      "status": "live",
+      "elements": [
+        { "name": "Registration Form", "type": "form", "notes": "Name, email, password, confirm password" },
+        { "name": "Submit Button", "type": "button", "notes": "Creates account" }
+      ]
+    },
+    {
+      "id": "overview",
+      "name": "Overview",
+      "route": "/dashboard",
+      "section": "dashboard",
+      "description": "Main dashboard with KPIs and recent activity",
+      "status": "live",
+      "elements": [
+        { "name": "KPI Cards", "type": "cards", "notes": "Revenue, users, churn, MRR" },
+        { "name": "Activity Timeline", "type": "timeline", "notes": "Recent events" },
+        { "name": "Quick Actions", "type": "button", "notes": "Create project, invite user" },
+        { "name": "Revenue Chart", "type": "chart", "notes": "30-day revenue trend" }
+      ]
+    },
+    {
+      "id": "projects-list",
+      "name": "Projects",
+      "route": "/dashboard/projects",
+      "section": "dashboard",
+      "description": "List of all user projects with search and filter",
+      "status": "live",
+      "elements": [
+        { "name": "Search Bar", "type": "input", "notes": "Filter projects by name" },
+        { "name": "Project Cards", "type": "cards", "notes": "Project name, status, last updated" },
+        { "name": "Create Project Button", "type": "button", "notes": "Opens creation dialog" },
+        { "name": "Create Project Dialog", "type": "dialog", "notes": "Name, description, template" }
+      ]
+    },
+    {
+      "id": "project-detail",
+      "name": "Project Detail",
+      "route": "/dashboard/projects/:id",
+      "section": "dashboard",
+      "description": "Single project view with tabs for different aspects",
+      "status": "live",
+      "elements": [
+        { "name": "Project Header", "type": "display", "notes": "Name, status badge, actions" },
+        { "name": "Tab Navigation", "type": "tabs", "notes": "Overview, Tasks, Members, Settings" },
+        { "name": "Task Board", "type": "kanban", "notes": "Drag-drop task management" },
+        { "name": "Members List", "type": "list", "notes": "Team members with roles" },
+        { "name": "Invite Member", "type": "dialog", "notes": "Email invite with role selection" }
+      ]
+    },
+    {
+      "id": "team",
+      "name": "Team",
+      "route": "/dashboard/team",
+      "section": "dashboard",
+      "description": "Team management and member overview",
+      "status": "live",
+      "elements": [
+        { "name": "Members Table", "type": "table", "notes": "Name, email, role, last active" },
+        { "name": "Invite Button", "type": "button", "notes": "Send invitation" },
+        { "name": "Role Dropdown", "type": "dropdown", "notes": "Admin, member, viewer" }
+      ]
+    },
+    {
+      "id": "profile-settings",
+      "name": "Profile",
+      "route": "/settings/profile",
+      "section": "settings",
+      "description": "User profile settings",
+      "status": "live",
+      "elements": [
+        { "name": "Profile Form", "type": "form", "notes": "Name, email, avatar, bio" },
+        { "name": "Save Button", "type": "button", "notes": "Update profile" },
+        { "name": "Delete Account", "type": "button", "notes": "Danger zone, requires confirmation" }
+      ]
+    },
+    {
+      "id": "notification-settings",
+      "name": "Notifications",
+      "route": "/settings/notifications",
+      "section": "settings",
+      "description": "Email and push notification preferences",
+      "status": "live",
+      "elements": [
+        { "name": "Email Preferences", "type": "form", "notes": "Toggle email types" },
+        { "name": "Push Preferences", "type": "form", "notes": "Toggle push notification types" }
+      ]
+    },
+    {
+      "id": "billing-overview",
+      "name": "Billing Overview",
+      "route": "/billing",
+      "section": "billing",
+      "description": "Current plan, usage, and payment history",
+      "status": "live",
+      "elements": [
+        { "name": "Current Plan Card", "type": "cards", "notes": "Plan name, price, renewal date" },
+        { "name": "Usage Meters", "type": "chart", "notes": "API calls, storage, seats used" },
+        { "name": "Payment History", "type": "table", "notes": "Date, amount, status, invoice link" },
+        { "name": "Upgrade Button", "type": "button", "notes": "Opens plan selection" }
+      ]
+    },
+    {
+      "id": "plan-selection",
+      "name": "Plans",
+      "route": "/billing/plans",
+      "section": "billing",
+      "description": "Plan comparison and upgrade flow",
+      "status": "live",
+      "elements": [
+        { "name": "Plan Cards", "type": "cards", "notes": "Free, Pro, Enterprise with feature comparison" },
+        { "name": "Select Plan Button", "type": "button", "notes": "Initiates Stripe checkout" }
+      ]
+    }
+  ],
+
+  "entities": [
+    {
+      "id": "user",
+      "name": "User",
+      "description": "Application user with auth and profile data",
+      "fields": ["id", "email", "name", "avatar_url", "role", "created_at", "last_login"],
+      "screens": ["login", "signup", "profile-settings", "team"]
+    },
+    {
+      "id": "project",
+      "name": "Project",
+      "description": "A workspace that contains tasks and members",
+      "fields": ["id", "name", "description", "status", "owner_id", "created_at", "updated_at"],
+      "screens": ["projects-list", "project-detail", "overview"]
+    },
+    {
+      "id": "task",
+      "name": "Task",
+      "description": "A work item within a project",
+      "fields": ["id", "title", "description", "status", "priority", "assignee_id", "project_id", "due_date"],
+      "screens": ["project-detail"]
+    },
+    {
+      "id": "team-member",
+      "name": "Team Member",
+      "description": "A user's membership in the organization",
+      "fields": ["id", "user_id", "role", "invited_at", "accepted_at"],
+      "screens": ["team", "project-detail"]
+    },
+    {
+      "id": "subscription",
+      "name": "Subscription",
+      "description": "Stripe subscription tied to the organization",
+      "fields": ["id", "plan", "status", "stripe_id", "current_period_end", "seats"],
+      "screens": ["billing-overview", "plan-selection"]
+    },
+    {
+      "id": "invoice",
+      "name": "Invoice",
+      "description": "Payment record from Stripe",
+      "fields": ["id", "amount", "currency", "status", "stripe_invoice_id", "created_at"],
+      "screens": ["billing-overview"]
+    }
+  ],
+
+  "relationships": [
+    { "from": "user", "to": "project", "label": "owns", "type": "one-to-many" },
+    { "from": "project", "to": "task", "label": "contains", "type": "one-to-many" },
+    { "from": "user", "to": "task", "label": "assigned to", "type": "one-to-many" },
+    { "from": "user", "to": "team-member", "label": "has membership", "type": "one-to-one" },
+    { "from": "project", "to": "team-member", "label": "has members", "type": "many-to-many" },
+    { "from": "subscription", "to": "invoice", "label": "generates", "type": "one-to-many" },
+    { "from": "user", "to": "subscription", "label": "subscribes to", "type": "one-to-one" }
+  ],
+
+  "flows": [
+    {
+      "id": "onboarding",
+      "name": "New User Onboarding",
+      "description": "From signup to first project creation",
+      "steps": ["signup", "login", "overview", "projects-list", "project-detail"]
+    },
+    {
+      "id": "upgrade",
+      "name": "Plan Upgrade",
+      "description": "User upgrades their subscription plan",
+      "steps": ["billing-overview", "plan-selection", "subscription"]
+    },
+    {
+      "id": "task-management",
+      "name": "Task Workflow",
+      "description": "Creating and managing tasks within a project",
+      "steps": ["projects-list", "project-detail", "task"]
+    }
+  ]
+}

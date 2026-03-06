@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PPM - Propper Project Mapper</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="topbar-left">
+        <h1>PPM</h1>
+        <span class="sep">|</span>
+        <select id="project-select"></select>
+        <select id="section-filter" class="hidden"></select>
+      </div>
+      <div class="topbar-center">
+        <button class="view-btn active" data-view="system">System</button>
+        <button class="view-btn" data-view="screens">Screens</button>
+        <button class="view-btn" data-view="data">Data Model</button>
+        <button class="view-btn" data-view="flows">Flows</button>
+      </div>
+      <div class="topbar-right">
+        <input type="text" id="search" placeholder="Find..." autocomplete="off">
+        <button id="btn-refresh" title="Reload manifest from disk">&#x21bb; Refresh</button>
+      </div>
+    </header>
+
+    <div id="main">
+      <div id="graph-container"></div>
+      <div id="loading-overlay" class="hidden">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading project...</div>
+      </div>
+      <aside id="panel" class="hidden">
+        <div id="panel-header">
+          <span id="panel-title">Details</span>
+          <button id="panel-close">&times;</button>
+        </div>
+        <div id="panel-content"></div>
+      </aside>
+    </div>
+
+    <div id="legend"></div>
+    <div id="toast" class="toast"></div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
