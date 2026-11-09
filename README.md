@@ -71,6 +71,8 @@ echo "PORT=3333" > .env
 echo "MANIFESTS_DIR=/path/to/my/shared-manifests" >> .env
 ```
 
+`MANIFESTS_DIR` may also list several folders separated by `:`, for example your own manifests plus a team folder. The first folder that has a project wins.
+
 This is useful when:
 - You want to **share manifests with your team** without sharing the PPM app itself
 - PPM is nested inside a project but you want manifests in a central location
