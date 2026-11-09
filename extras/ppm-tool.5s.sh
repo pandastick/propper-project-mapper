@@ -12,7 +12,7 @@
 # Change to 10s, 30s, 1m, etc. as preferred.
 
 # ── CONFIG ── Edit this path to your PPM installation
-PROPPER_DIR="$HOME/propper-project-mapper"
+PROPPER_DIR="$HOME/xpm"
 
 # ── Read port from .env or default to 3333 ──
 if [ -f "$PROPPER_DIR/.env" ]; then
