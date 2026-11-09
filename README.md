@@ -82,7 +82,7 @@ PPM reads **manifest files** from the `manifests/` folder (or your custom `MANIF
 
 Drop a new `.json` file in the manifests directory and it appears in the dropdown. Click "Refresh" to reload from disk while the server runs.
 
-## Pipelines: see how a message really moves (XPM 2, in progress)
+## Pipelines: see how a message really moves (XPM 2)
 
 A pipeline is the path a message takes through a product: which step receives it, what decides where it goes, which model answers, what sends the reply. XPM draws it like a workflow editor, then checks it three ways so you can trust it.
 
@@ -91,6 +91,16 @@ A pipeline is the path a message takes through a product: which step receives it
 | **Map** | Every step as a node, every hand-off as an edge, conditions on the edges (`mode = planner`) | Each node points at a file and function. `xpm check` fails when one moves or disappears |
 | **Runs** | Real executions laid over the map: traffic per edge, time per node, failures | Each step writes one event line. A step the map does not know shows up as a **ghost** |
 | **Draft** | Add or rewire steps and replay recorded runs through the change | Recorded decisions replayed on the new graph, no product code runs. Exports a change spec |
+
+### The Pipeline view
+
+Open `http://localhost:3333/pipeline.html` (or the **Pipeline** button on a project that has pipelines). Three views, one segmented toggle:
+
+- **Map:** the declared pipeline in lanes, with hits and median time over the last 50 runs. Tap a step for its file, function and code check.
+- **Runs:** the last 50 runs, newest first, each with what was typed, when the channel received it and the run id. Pick one to light its path, step through it, and see ghost steps the map does not know. `?run=<id>` links straight to a run.
+- **Draft:** a change drawn in dashed blue, replayed against the recorded runs, with the verdict, the runs that change route, and **Export spec**. A ghost step in Runs can become a draft in one tap.
+
+Plain JavaScript, no build step, no new dependencies. Every control is a real button at least 44px tall, scrolling is native, and the page has no touch handlers (safe for Apple Pencil on iPad). On a phone the runs list stacks under the canvas.
 
 ### Try it
 
@@ -129,9 +139,20 @@ The example bot, its code and its events are synthetic.
 ```
 
 - Types: `run.started, node.started, node.completed, node.failed, decision, run.completed, run.failed`.
-- `metadata` keeps only `decision, durationMs, status, errorCode, attempt, model, tokens, costUsd`. Everything else is dropped on write and on read. **Never put message text or user ids in an event.**
+- `metadata` keeps only `decision, durationMs, status, errorCode, attempt, model, tokens, costUsd, sentAt`. Everything else is dropped on write and on read. **Never put message text or user ids in an event.**
+- `sentAt` is when the channel received the message (Unix seconds), shown in local time in Runs.
 - Drop-in writers with no dependencies: `writers/xpm-trace.js` (Node, TypeScript) and `writers/xpm_trace.py` (Python). `runIdFor(updateId, salt)` hashes the upstream id.
 - Real events go in `events/<project>/YYYY-MM-DD.jsonl` (or `XPM_EVENTS_DIR`), drafts in `drafts/<project>/` (or `XPM_DRAFTS_DIR`). Both are git-ignored.
+
+### Previews: what was typed (opt-in, kept apart)
+
+Runs can show what the person typed, so a run is easy to find. That text never goes into the event stream:
+
+- The writers keep it only when created with `previews: true`, in `events/<project>/previews/YYYY-MM-DD.jsonl`.
+- Control characters are flattened and the text is cut to 120 characters.
+- It is shown in the Runs list and strip only. It never enters a draft, a replay result or an exported spec.
+- `node bin/xpm.js prune events/<project> --days 14` deletes old events and their previews together.
+- A run without a preview shows `(no preview)`.
 
 ### API
 

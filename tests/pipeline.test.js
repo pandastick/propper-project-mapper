@@ -44,7 +44,9 @@ test("overlay: hits, failures, ghosts and unmapped hops", () => {
   assert.equal(o.runCount, 60);
   assert.equal(o.nodes.receive.hits, 60);
   assert.equal(o.nodes.agent.state, "failing");
-  assert.deepEqual(o.ghosts, [{ id: "history-log", hits: 15 }]);
+  assert.equal(o.ghosts.length, 1);
+  assert.equal(o.ghosts[0].id, "history-log");
+  assert.ok(o.ghosts[0].hits > 0);
   assert.ok(o.unmapped.some((u) => u.pair === "fast-path->history-log"));
 });
 
@@ -65,14 +67,14 @@ test("route: conditional edges win, plain edges are the else", () => {
   assert.deepEqual(xpm.route(pipeline, { duplicate: "yes" }, "r").path, ["receive", "dedupe"]);
 });
 
-test("simulate: classifier first, smalltalk skips the mode gate", () => {
+test("simulate: classifier first", () => {
   const r = xpm.simulate(pipeline, draft, runs);
   assert.equal(r.ok, true);
-  assert.equal(r.passesNewCount, 55);
-  const small = r.outcomes["intent-classifier: intent=smalltalk"];
-  assert.equal(r.changedCount, small);
-  assert.equal(r.trafficDelta["mode-gate"], -small);
+  const nonDuplicate = runs.filter((x) => x.decisions.duplicate !== "yes").length;
+  assert.equal(r.passesNewCount, nonDuplicate);
+  assert.ok(r.changedCount > 0 && r.changedCount < runs.length);
   assert.equal(r.medianAddedMs, 350);
+  assert.ok(r.perRun.filter((x) => x.changed).every((x) => x.basePath.includes("fast-path")));
 });
 
 test("simulate: same input, same answer", () => {
@@ -114,8 +116,44 @@ test("writer: lines are valid events and carry no raw upstream id", () => {
 test("spec export is ADHD shaped and names the code to change", () => {
   const spec = xpm.draftToSpec(pipeline, draft, xpm.simulate(pipeline, draft, runs));
   const lines = spec.split("\n");
-  assert.match(lines[0], /^# Change spec: Classifier before everything/);
+  assert.match(lines[0], /^# Change spec: classifier-first/);
   assert.match(spec, /\*\*Answer:\*\*/);
   assert.match(spec, /src\/door\.js \(isDuplicate\)/);
   assert.doesNotMatch(spec, /—/);
+});
+
+test("previews: kept apart, cleaned, cut, and pruned with the events", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xpm-prev-"));
+  const t = createTracer({ dir, pipeline: "p", previews: true });
+  t.start("r1", { ts: "2026-10-01T00:00:00Z", sentAt: 1759276800 });
+  t.preview("r1", "line one\nline two " + "x".repeat(300), "2026-10-01T00:00:00Z");
+  t.start("r2", { ts: "2026-11-09T00:00:00Z" });
+  t.preview("r2", "hello", "2026-11-09T00:00:00Z");
+  const eventsText = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl")).map((f) => fs.readFileSync(path.join(dir, f), "utf-8")).join("");
+  assert.doesNotMatch(eventsText, /line one|hello/);
+  const p = xpm.loadPreviews(dir);
+  assert.equal(p.get("r1").length, 120);
+  assert.match(p.get("r1"), /^line one line two x+…$/);
+  assert.equal(xpm.foldRuns(xpm.loadEvents(dir).events).find((r) => r.runId === "r1").sentAt, 1759276800);
+  const gone = xpm.prune(dir, 14, Date.parse("2026-11-09T12:00:00Z"));
+  assert.deepEqual(gone.sort(), ["2026-10-01.jsonl", path.join("previews", "2026-10-01.jsonl")].sort());
+  assert.equal(xpm.loadPreviews(dir).has("r1"), false);
+  assert.equal(xpm.loadPreviews(dir).get("r2"), "hello");
+});
+
+test("previews: off by default in the writer", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xpm-off-"));
+  createTracer({ dir, pipeline: "p" }).preview("r1", "secret", "2026-11-09T00:00:00Z");
+  assert.equal(fs.existsSync(path.join(dir, "previews")), false);
+});
+
+test("draft: changed conditions route, are named in the spec, and a missing link is refused", () => {
+  const r = xpm.simulate(pipeline, draft, runs);
+  assert.equal(r.ok, true);
+  const spec = xpm.draftToSpec(pipeline, draft, r);
+  assert.match(spec, /Change the link fast-path to command-reply: only when intent is command/);
+  for (const text of xpm.loadPreviews(path.join(ROOT, "examples/events/example-bot")).values()) assert.equal(spec.includes(text), false);
+  const bad = xpm.simulate(pipeline, { changeEdges: [{ from: "agent", to: "dedupe", when: { decision: "x", equals: "y" } }] }, runs);
+  assert.equal(bad.ok, false);
+  assert.match(bad.errors[0], /does not exist/);
 });

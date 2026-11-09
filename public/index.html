@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PPM - Propper Project Mapper</title>
+  <title>XPM - Xcali Project Mapper</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 </head>
@@ -11,7 +11,7 @@
   <div id="app">
     <header id="topbar">
       <div class="topbar-left">
-        <h1>PPM</h1>
+        <h1>XPM</h1>
         <span class="sep">|</span>
         <select id="project-select"></select>
         <select id="section-filter" class="hidden"></select>
@@ -21,6 +21,7 @@
         <button class="view-btn" data-view="screens">Screens</button>
         <button class="view-btn" data-view="data">Data Model</button>
         <button class="view-btn" data-view="flows">Flows</button>
+        <a class="view-btn hidden" id="pipeline-link" href="pipeline.html">Pipeline</a>
       </div>
       <div class="topbar-right">
         <input type="text" id="search" placeholder="Find..." autocomplete="off">
