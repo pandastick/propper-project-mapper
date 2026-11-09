@@ -1,0 +1,43 @@
+{
+  "id": "example-bot",
+  "name": "Example Bot",
+  "description": "Synthetic chat bot that shows the Pipeline view. Not a real system.",
+  "tech": "Node.js (synthetic)",
+  "sections": [],
+  "screens": [],
+  "entities": [],
+  "relationships": [],
+  "flows": [],
+  "pipelines": [
+    {
+      "id": "inbound",
+      "name": "A message reaches the bot",
+      "description": "From the chat platform to the reply, with modes and a fast path.",
+      "lanes": ["door", "brain", "after"],
+      "entry": "receive",
+      "nodes": [
+        { "id": "receive", "name": "Receive update", "kind": "door", "lane": "door", "owner": "example", "anchor": { "repo": "example", "path": "src/door.js", "symbol": "receiveUpdate" } },
+        { "id": "dedupe", "name": "Drop duplicates", "kind": "gate", "lane": "door", "decides": "duplicate", "owner": "example", "anchor": { "repo": "example", "path": "src/door.js", "symbol": "isDuplicate" } },
+        { "id": "mode-gate", "name": "Which mode is on", "kind": "mode", "lane": "door", "decides": "mode", "owner": "example", "anchor": { "repo": "example", "path": "src/modes.js", "symbol": "currentMode" } },
+        { "id": "planner-hold", "name": "Hold for planner", "kind": "queue", "lane": "brain", "owner": "example", "anchor": { "repo": "example", "path": "src/modes.js", "symbol": "holdForPlanner" } },
+        { "id": "private-model", "name": "Private model", "kind": "model", "lane": "brain", "owner": "example", "anchor": { "repo": "example", "path": "src/agent.js", "symbol": "answerPrivately" } },
+        { "id": "fast-path", "name": "Command or chat", "kind": "router", "lane": "brain", "decides": "fast", "owner": "example", "anchor": { "repo": "example", "path": "src/router.js", "symbol": "fastPath" } },
+        { "id": "command-reply", "name": "Run the command", "kind": "tool", "lane": "brain", "owner": "example", "anchor": { "repo": "example", "path": "src/router.js", "symbol": "replyToCommand" } },
+        { "id": "agent", "name": "Agent", "kind": "model", "lane": "brain", "owner": "example", "anchor": { "repo": "example", "path": "src/agent.js", "symbol": "runAgent" } },
+        { "id": "reply", "name": "Send reply", "kind": "sender", "lane": "after", "owner": "example", "anchor": { "repo": "example", "path": "src/send.js", "symbol": "sendReply" } }
+      ],
+      "edges": [
+        { "from": "receive", "to": "dedupe" },
+        { "from": "dedupe", "to": "mode-gate", "when": { "decision": "duplicate", "equals": "no" } },
+        { "from": "mode-gate", "to": "planner-hold", "when": { "decision": "mode", "equals": "planner" } },
+        { "from": "mode-gate", "to": "private-model", "when": { "decision": "mode", "equals": "privacy" } },
+        { "from": "mode-gate", "to": "fast-path" },
+        { "from": "fast-path", "to": "command-reply", "when": { "decision": "fast", "equals": "yes" } },
+        { "from": "fast-path", "to": "agent" },
+        { "from": "command-reply", "to": "reply" },
+        { "from": "agent", "to": "reply" },
+        { "from": "private-model", "to": "reply" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "pipeline": "inbound",
+  "name": "Classifier before everything",
+  "addNodes": [
+    {
+      "id": "intent-classifier",
+      "name": "Intent classifier",
+      "kind": "classifier",
+      "lane": "door",
+      "assume": { "latencyMs": 350, "decision": "intent", "split": { "chat": 0.6, "task": 0.3, "smalltalk": 0.1 } }
+    }
+  ],
+  "removeEdges": [{ "from": "dedupe", "to": "mode-gate" }],
+  "addEdges": [
+    { "from": "dedupe", "to": "intent-classifier", "when": { "decision": "duplicate", "equals": "no" } },
+    { "from": "intent-classifier", "to": "command-reply", "when": { "decision": "intent", "equals": "smalltalk" } },
+    { "from": "intent-classifier", "to": "mode-gate" }
+  ]
+}
