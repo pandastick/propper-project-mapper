@@ -110,13 +110,16 @@ app.get("/api/project/:id/pipeline/:pid", (req, res) => {
   const { pipeline } = found;
   const errors = xpm.validatePipeline(pipeline);
   const anchors = errors.length ? [] : xpm.checkAnchors(pipeline, reposFor(req.params.id));
-  const { events, rejected } = xpm.loadEvents(eventsDirFor(req.params.id), pipeline.id);
-  const runs = xpm.foldRuns(events);
+  const dir = eventsDirFor(req.params.id);
+  const { events, rejected } = xpm.loadEvents(dir, pipeline.id);
+  const last50 = xpm.foldRuns(events).slice(0, 50);
+  // What the person typed is attached here, for the runs list only. It never enters simulate or a spec.
+  const previews = xpm.loadPreviews(dir);
   res.json({
     pipeline,
     check: { errors, anchors },
-    overlay: xpm.overlay(pipeline, runs),
-    runs: runs.slice(0, 50),
+    overlay: xpm.overlay(pipeline, last50),
+    runs: last50.map((r) => ({ ...r, preview: previews.get(r.runId) ?? null })),
     rejectedEvents: rejected.length,
     generatedAt: new Date().toISOString(),
   });
@@ -132,7 +135,8 @@ app.get("/api/project/:id/pipeline/:pid/drafts", (req, res) => {
     for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".json"))) {
       try {
         const d = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
-        if (!d.pipeline || d.pipeline === req.params.pid) drafts.push({ file: f, ...d });
+        const savedAt = fs.statSync(path.join(dir, f)).mtime.toISOString();
+        if (!d.pipeline || d.pipeline === req.params.pid) drafts.push({ ...d, file: f, savedAt });
       } catch (err) {
         console.error(`  Error reading draft ${f}: ${err.message}`);
       }
@@ -149,7 +153,8 @@ app.post("/api/project/:id/pipeline/:pid/simulate", (req, res) => {
   const runs = xpm.foldRuns(xpm.loadEvents(eventsDirFor(req.params.id), found.pipeline.id).events);
   const result = xpm.simulate(found.pipeline, draft, runs);
   if (!result.ok) return res.status(400).json(result);
-  res.json({ ...result, perRun: result.perRun.slice(0, 50), spec: xpm.draftToSpec(found.pipeline, draft, result) });
+  // Only the runs that change route travel back; that is all the result table needs.
+  res.json({ ...result, perRun: result.perRun.filter((r) => r.changed), spec: xpm.draftToSpec(found.pipeline, draft, result) });
 });
 
 // Validate a manifest (re-reads and reports stats)

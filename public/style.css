@@ -163,3 +163,5 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #334155; }
+#pipeline-link { text-decoration: none; display: inline-flex; align-items: center; }
+#pipeline-link.hidden { display: none; }

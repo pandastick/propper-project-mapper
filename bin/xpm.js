@@ -3,6 +3,7 @@
 //   xpm check    <manifest.json> [--repos .xpm-repos.json]
 //   xpm runs     <manifest.json> --pipeline ID --events DIR
 //   xpm simulate <manifest.json> --pipeline ID --events DIR --draft draft.json [--spec out.md]
+//   xpm prune    <events-dir> --days 14          (deletes old events AND previews)
 
 const fs = require("fs");
 const path = require("path");
@@ -36,6 +37,13 @@ function main() {
   if (!cmd || !manifestFile) {
     console.log("usage: xpm check|runs|simulate <manifest.json> [options]");
     return 2;
+  }
+  if (cmd === "prune") {
+    const days = Number(a.days);
+    if (!Number.isFinite(days) || days < 1) throw new Error("--days must be 1 or more");
+    const gone = xpm.prune(manifestFile, days);
+    console.log(gone.length ? gone.map((f) => `deleted ${f}`).join("\n") : "nothing older than that");
+    return 0;
   }
   const manifest = readJson(manifestFile);
 

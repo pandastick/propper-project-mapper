@@ -11,7 +11,8 @@ import json
 import os
 from datetime import datetime, timezone
 
-KEYS = ("decision", "durationMs", "status", "errorCode", "attempt", "model", "tokens", "costUsd")
+KEYS = ("decision", "durationMs", "status", "errorCode", "attempt", "model", "tokens", "costUsd", "sentAt")
+PREVIEW_MAX = 120
 
 
 def run_id_for(upstream_id: object, salt: str) -> str:
@@ -20,8 +21,10 @@ def run_id_for(upstream_id: object, salt: str) -> str:
 
 
 class Tracer:
-    def __init__(self, directory: str, pipeline: str, enabled: bool = True):
-        self.dir, self.pipeline, self.enabled = directory, pipeline, enabled
+    def __init__(self, directory: str, pipeline: str, enabled: bool = True, previews: bool = False):
+        """previews: opt in to keep what the person typed (cut to 120 characters) in <dir>/previews/,
+        apart from the events. Leave it off unless the owner of the data has said yes."""
+        self.dir, self.pipeline, self.enabled, self.previews = directory, pipeline, enabled, previews
         self._seq: dict[str, int] = {}
         if enabled:
             os.makedirs(directory, exist_ok=True)
@@ -42,6 +45,22 @@ class Tracer:
             with open(os.path.join(self.dir, f"{ts[:10]}.jsonl"), "a", encoding="utf-8") as fh:
                 fcntl.flock(fh, fcntl.LOCK_EX)
                 fh.write(json.dumps(event, separators=(",", ":")) + "\n")
+        except Exception:  # Tracing must never break the product.
+            pass
+
+    def preview(self, run_id: str, text: str, ts: str | None = None) -> None:
+        if not (self.enabled and self.previews):
+            return
+        try:
+            flat = " ".join("".join(" " if ord(c) < 32 or ord(c) == 127 else c for c in str(text or "")).split())
+            if len(flat) > PREVIEW_MAX:
+                flat = flat[: PREVIEW_MAX - 1] + "\u2026"
+            ts = ts or datetime.now(timezone.utc).isoformat()
+            pdir = os.path.join(self.dir, "previews")
+            os.makedirs(pdir, exist_ok=True)
+            with open(os.path.join(pdir, f"{ts[:10]}.jsonl"), "a", encoding="utf-8") as fh:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+                fh.write(json.dumps({"runId": run_id, "text": flat}, ensure_ascii=False) + "\n")
         except Exception:  # Tracing must never break the product.
             pass
 

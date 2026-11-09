@@ -100,6 +100,9 @@ async function loadProject(id) {
   try {
     const res = await fetch(`/api/project/${id}`);
     manifest = await res.json();
+    const pipelineLink = document.getElementById("pipeline-link");
+    pipelineLink.href = `pipeline.html?project=${encodeURIComponent(id)}`;
+    pipelineLink.classList.toggle("hidden", !(manifest.pipelines || []).length);
     currentSectionFilter = null;
     buildSectionColors();
     populateSectionFilter();
