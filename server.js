@@ -59,9 +59,10 @@ function eventsDirFor(project) {
   return project.startsWith("example-") && fs.existsSync(example) ? example : null;
 }
 
+// The example project always finds its synthetic repo; a local repos file adds the real ones.
 function reposFor(project) {
-  if (fs.existsSync(REPOS_FILE)) return xpm.loadRepos(REPOS_FILE);
-  return project.startsWith("example-") ? xpm.loadRepos(path.join(__dirname, ".xpm-repos.example.json")) : {};
+  const example = project.startsWith("example-") ? xpm.loadRepos(path.join(__dirname, ".xpm-repos.example.json")) : {};
+  return { ...example, ...xpm.loadRepos(REPOS_FILE) };
 }
 
 // List all available project manifests
