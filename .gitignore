@@ -5,3 +5,13 @@ node_modules/
 CLAUDE.md
 docs/
 .agent/
+
+# Private project manifests: real architecture data. NEVER push. Only example-*.json templates are tracked.
+manifests/*.json
+!manifests/example-*.json
+
+# XPM private runtime data: real execution events, drafts, and the local repo map for `xpm check`.
+/events/
+/drafts/
+/.xpm-repos.json
+__pycache__/

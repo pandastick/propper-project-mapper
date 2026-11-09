@@ -1,6 +1,6 @@
-# Propper Project Mapper (PPM)
+# XPM (Xcali Project Mapper)
 
-A visual node-graph explorer for mapping project architecture. See your screens, entities, relationships, and user flows as an interactive graph - not a file tree.
+A visual node-graph explorer for mapping project architecture. See your screens, entities, relationships, user flows and **message pipelines** as an interactive graph, not a file tree. Formerly Propper Project Mapper (PPM).
 
 **PPM maps what your project *does*, not how it's organized on disk.**
 
@@ -81,6 +81,69 @@ This is useful when:
 PPM reads **manifest files** from the `manifests/` folder (or your custom `MANIFESTS_DIR`). Each manifest defines your project's conceptual architecture: what screens exist, what data entities the system uses, how they relate, and what user flows connect them.
 
 Drop a new `.json` file in the manifests directory and it appears in the dropdown. Click "Refresh" to reload from disk while the server runs.
+
+## Pipelines: see how a message really moves (XPM 2, in progress)
+
+A pipeline is the path a message takes through a product: which step receives it, what decides where it goes, which model answers, what sends the reply. XPM draws it like a workflow editor, then checks it three ways so you can trust it.
+
+| Layer | What you get | Why you can trust it |
+|---|---|---|
+| **Map** | Every step as a node, every hand-off as an edge, conditions on the edges (`mode = planner`) | Each node points at a file and function. `xpm check` fails when one moves or disappears |
+| **Runs** | Real executions laid over the map: traffic per edge, time per node, failures | Each step writes one event line. A step the map does not know shows up as a **ghost** |
+| **Draft** | Add or rewire steps and replay recorded runs through the change | Recorded decisions replayed on the new graph, no product code runs. Exports a change spec |
+
+### Try it
+
+```bash
+npm install
+npm test                                   # engine tests
+node bin/xpm.js check manifests/example-bot.json --repos .xpm-repos.example.json
+node bin/xpm.js runs manifests/example-bot.json --pipeline inbound --events examples/events/example-bot
+node bin/xpm.js simulate manifests/example-bot.json --pipeline inbound \
+  --events examples/events/example-bot --draft examples/drafts/example-bot-classifier-first.json
+```
+
+The example bot, its code and its events are synthetic.
+
+### Pipeline schema (inside a project manifest)
+
+```json
+"pipelines": [{
+  "id": "inbound", "name": "A message reaches the bot", "entry": "receive",
+  "lanes": ["door", "brain", "after"],
+  "nodes": [{ "id": "mode-gate", "name": "Which mode is on", "kind": "mode", "lane": "door",
+              "decides": "mode", "anchor": { "repo": "bot", "path": "src/modes.js", "symbol": "currentMode" } }],
+  "edges": [{ "from": "mode-gate", "to": "planner-hold", "when": { "decision": "mode", "equals": "planner" } },
+            { "from": "mode-gate", "to": "fast-path" }]
+}]
+```
+
+- **Node kinds:** `door, hook, router, classifier, mode, model, tool, queue, store, gate, sender`.
+- **Routing rule:** a node with `when` edges follows the ones that match; its plain edges are the else. A node with only plain edges follows all of them.
+- **Anchors:** `repo` names a root in `.xpm-repos.json` (git-ignored, `{ "bot": "~/code/bot" }`).
+
+### Events (one JSON line per step)
+
+```json
+{"runId":"934cf907af95fcb7","ts":"2026-11-07T08:00:00.007Z","seq":3,"pipeline":"inbound","type":"decision","node":"dedupe","metadata":{"decision":{"duplicate":"no"},"durationMs":2}}
+```
+
+- Types: `run.started, node.started, node.completed, node.failed, decision, run.completed, run.failed`.
+- `metadata` keeps only `decision, durationMs, status, errorCode, attempt, model, tokens, costUsd`. Everything else is dropped on write and on read. **Never put message text or user ids in an event.**
+- Drop-in writers with no dependencies: `writers/xpm-trace.js` (Node, TypeScript) and `writers/xpm_trace.py` (Python). `runIdFor(updateId, salt)` hashes the upstream id.
+- Real events go in `events/<project>/YYYY-MM-DD.jsonl` (or `XPM_EVENTS_DIR`), drafts in `drafts/<project>/` (or `XPM_DRAFTS_DIR`). Both are git-ignored.
+
+### API
+
+| Route | Returns |
+|---|---|
+| `GET /api/project/:id/pipeline/:pid` | map, code check, overlay, last 50 runs |
+| `GET /api/project/:id/pipeline/:pid/drafts` | saved drafts |
+| `POST /api/project/:id/pipeline/:pid/simulate` | what-if result and change spec for the draft in the body |
+
+### Credits
+
+Ideas, not code, from: [AgentFlow Visualization](https://github.com/Elyon0517/AgentFlow-Visualization) (MIT, event envelope and replay), [langgraph-replay](https://github.com/devendra116/agent-replay-engine) (MIT, replay modes), [Graph of Trace](https://github.com/NeuroAIHub/Graph-of-Trace) (MIT), [Statefold](https://github.com/ioteverythin/statefold) (Apache 2.0, invariants), and n8n's executions view.
 
 ## Setting Up Your Projects
 

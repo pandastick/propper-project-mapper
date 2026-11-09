@@ -1,23 +1,31 @@
 {
-  "name": "propper-project-mapper",
-  "version": "1.0.0",
-  "description": "Visual node-graph explorer for mapping project architecture - screens, entities, relationships, and user flows",
+  "name": "xpm",
+  "version": "2.0.0-alpha.1",
+  "description": "Xcali Project Mapper: see how a product is built. Node maps of screens, data and message pipelines, checked against the code and lit up by real runs.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node --test tests/*.test.js",
+    "example:events": "node examples/make-example-events.js"
   },
   "keywords": [
-    "project-mapper",
+    "ai-tools",
     "architecture",
-    "visualization",
+    "execution-trace",
     "node-graph",
+    "pipeline",
     "project-management",
-    "ai-tools"
+    "project-mapper",
+    "visualization",
+    "what-if"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2"
+  },
+  "bin": {
+    "xpm": "bin/xpm.js"
   }
 }
