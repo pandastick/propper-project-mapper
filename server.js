@@ -13,6 +13,11 @@ if (fs.existsSync(envPath)) {
 
 const app = express();
 const PORT = process.env.PORT || 3333;
+// Loopback by default: put a proxy (tailscale serve) in front to reach it from elsewhere.
+const HOST = process.env.HOST || "127.0.0.1";
+// Behind tailscale serve: only these Tailscale logins get in (comma separated). Tagged devices send no login, so they are refused.
+const ALLOWED_LOGINS = (process.env.XPM_ALLOWED_LOGINS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+const LOOPBACK = ["127.0.0.1", "::1", "localhost"].includes(HOST);
 // One folder or several, separated like PATH (":" on macOS and Linux). The first folder that has a project wins.
 const MANIFESTS_DIRS = (process.env.MANIFESTS_DIR || path.join(__dirname, "manifests")).split(path.delimiter).filter(Boolean);
 const manifestPath = (id) => MANIFESTS_DIRS.map((d) => path.join(d, `${id}.json`)).find((f) => fs.existsSync(f)) || path.join(MANIFESTS_DIRS[0], `${id}.json`);
@@ -31,6 +36,19 @@ const REPOS_FILE = process.env.XPM_REPOS || path.join(__dirname, ".xpm-repos.jso
 const EXAMPLES = path.join(__dirname, "examples");
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,80}$/i;
 const xpm = require("./lib/pipeline");
+
+// The login header is only trustworthy when nothing but the local proxy can reach this server.
+if (ALLOWED_LOGINS.length && !LOOPBACK) {
+  console.error("  Refusing to start: XPM_ALLOWED_LOGINS needs HOST on loopback, or the login header can be forged.");
+  process.exit(1);
+}
+if (ALLOWED_LOGINS.length) {
+  app.use((req, res, next) => {
+    const login = String(req.get("Tailscale-User-Login") || "").toLowerCase();
+    if (ALLOWED_LOGINS.includes(login)) return next();
+    res.status(403).type("text/plain").send("XPM: this Tailscale login is not allowed.");
+  });
+}
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "200kb" }));
@@ -189,8 +207,8 @@ app.post("/api/regenerate/:id", (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
   const count = manifestFiles().length;
-  console.log(`\n  XPM (Xcali Project Mapper) running at http://localhost:${PORT}`);
+  console.log(`\n  XPM (Xcali Project Mapper) running at http://${HOST}:${PORT}${ALLOWED_LOGINS.length ? ` (Tailscale logins: ${ALLOWED_LOGINS.length})` : ""}`);
   console.log(`  Manifests: ${MANIFESTS_DIRS.join(", ")} (${count} projects)\n`);
 });
