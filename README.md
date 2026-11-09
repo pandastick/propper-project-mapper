@@ -156,6 +156,11 @@ Runs can show what the person typed, so a run is easy to find. That text never g
 - `node bin/xpm.js prune events/<project> --days 14` deletes old events and their previews together.
 - A run without a preview shows `(no preview)`.
 
+### Serving it on a tailnet
+
+- `HOST` (default `127.0.0.1`): XPM listens on loopback only. Put `tailscale serve` (or another proxy) in front to reach it from other devices.
+- `XPM_ALLOWED_LOGINS` (comma separated, for example `you@example.com`): behind `tailscale serve`, only these Tailscale logins get in; everyone else, and tagged devices (which send no login), get 403. XPM refuses to start with this set unless `HOST` is loopback, because the login header could otherwise be forged. Set it before turning on previews.
+
 ### API
 
 | Route | Returns |
