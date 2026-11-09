@@ -1,1 +1,1 @@
-{ "example": "examples/example-bot" }
+{ "example": "examples/example-bot", "xpm-self": "." }

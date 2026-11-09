@@ -27,7 +27,8 @@ const S = {
   filter: "all", picked: null, step: null, railOpen: true, changedIds: null,
   drafts: [], draft: null, draftSavedAt: null, result: null, resultOpen: false, replaying: false, replayError: null,
   zoom: null, userZoomed: false,
-  lens: null, openLanes: new Set(),   // Map lens: "overview" folds lanes into one card each, "all" shows every step
+  lens: null, openLanes: new Set(),
+  source: null, showFiles: false,   // Setup: where the code lives and how XPM is set up for this project   // Map lens: "overview" folds lanes into one card each, "all" shows every step
 };
 
 // The lens: fold every lane that is not open into one card, so a long pipeline reads at a glance.
@@ -272,8 +273,45 @@ function topBar() {
       <div class="menu-wrap"><button type="button" class="pick-btn" aria-haspopup="listbox" aria-expanded="${S.menu === "pipeline"}" data-act="menu" data-arg="pipeline"><span class="lbl">pipeline</span><span>${esc(p?.id || S.pipelineId || "")}</span><span class="sub">${esc(p?.name || "")}</span>${SVG.chev}</button>${pipeMenu}</div>
     </div>
     <div class="seg" role="group" aria-label="View">${seg}</div>
-    <div class="status">${check}${isLive() ? '<span><span class="dot live"></span>Live</span>' : ""}</div>
+    <div class="status">${setupButton()}${check}${isLive() ? '<span><span class="dot live"></span>Live</span>' : ""}</div>
   </header>`;
+}
+
+function setupButton() {
+  if (!S.data || !S.source) return "";
+  const bad = !S.source.configured || (S.source.rows || []).some((r) => r.status === "missing");
+  return `<button type="button" class="btn quiet${bad ? " red" : ""}" data-act="view" data-arg="setup" aria-pressed="${S.view === "setup"}">${S.source.configured ? "Setup" : "Not set up"}</button>`;
+}
+
+function aheadCount(m) { return m && !m.error ? m.differ.length + m.onlyTruth.length : 0; }
+
+// What the Map says about the setup, in one quiet line each, only when it is true.
+function setupStrips() {
+  const src = S.source;
+  if (!src || src.error) return "";
+  if (!src.configured) return `<div class="strip"><div class="row"><span class="red">Not set up:</span><span class="muted">XPM does not know where this project's code lives, so the map is checked against nothing.</span></div><button type="button" class="btn" data-act="view" data-arg="setup">Open setup</button></div>`;
+  const n = aheadCount(src.mirror);
+  if (!n) return "";
+  const row = (src.rows || []).find((r) => r.key === "mirror");
+  return `<div class="strip"><div class="row"><span>${esc(row ? `The truth is ${row.value}` : `${n} files ahead of the mirror`)}</span><span class="muted">compared with ${esc(src.mirror.ref)} ${esc(src.mirror.commit)} from ${esc(src.mirror.commitDate.slice(0, 10))}</span></div><button type="button" class="btn" data-act="view" data-arg="setup">See the files</button></div>`;
+}
+
+function viewSetup() {
+  const src = S.source;
+  if (!src) return `<div class="body"><main class="main"><div class="center">${SVG.spin}Checking the setup</div></main></div>`;
+  if (src.error) return `<div class="body"><main class="main"><div class="empty"><b class="err">${esc(src.error)}</b></div></main></div>`;
+  const m = src.mirror && !src.mirror.error ? src.mirror : null;
+  const files = m && S.showFiles ? [["Changed on the truth", m.differ], ["Only in the truth", m.onlyTruth], ["Only in the mirror", m.onlyMirror]]
+    .filter(([, l]) => l.length).map(([t, l]) => `<div class="files"><span class="muted">${t} (${l.length})</span><ul>${l.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></div>`).join("") : "";
+  const rows = (src.rows || []).map((r) => {
+    const fileBtn = r.key === "mirror" && aheadCount(m) + (m ? m.onlyMirror.length : 0) ? `<button type="button" class="btn" data-act="toggle-files" aria-expanded="${S.showFiles}">${S.showFiles ? "Hide the files" : `Show the ${aheadCount(m) + m.onlyMirror.length} files`}</button>` : "";
+    return `<li class="setup-row"><span class="muted">${esc(r.label)}</span><div class="setup-v"><span class="${r.status === "missing" ? "red" : ""}">${esc(r.value)}</span>${r.detail ? `<span class="muted small">${esc(r.detail)}</span>` : ""}${fileBtn}${r.key === "mirror" ? files : ""}</div></li>`;
+  }).join("");
+  const errs = (src.errors || []).length ? `<p class="red">The profile has problems: ${esc(src.errors.join("; "))}</p>` : "";
+  const how = src.configured ? "" : `<p class="muted">A project is set up with one entry in <code>.xpm-projects.json</code> on the machine XPM runs on: the truth (where the code really lives), an optional mirror to compare with, the traces and who may open it. See "Source profile" in the README.</p>`;
+  return `<div class="body"><main class="main"><div class="strip"><div class="row"><b>Setup of ${esc(S.project)}</b><span class="muted">what XPM checks against, and how it runs for this project</span></div><button type="button" class="btn" data-act="setup-refresh">Check again</button></div>
+    <div class="setup">${errs}${how}<ul class="setup-list">${rows}</ul></div>
+    ${footer(new Set(), `checked ${agoWords(Date.parse(src.generatedAt))}`, false)}</main></div>`;
 }
 
 function footer(states, note, zoomable = true, extra = "") {
@@ -382,7 +420,7 @@ function viewMap() {
   const body = canvas(p, L, lookLane, () => ({ stroke: "#4a4a50", width: 1.2 }));
   const ghosts = S.data.overlay.ghosts || [];
   const note = `hits and median time · last ${S.data.runs.length} runs · updated ${agoWords(S.fetchedAt)}`;
-  const strip = ghosts.length ? `<div class="strip"><div class="row"><span class="sq-ghost"></span><span>${ghosts.length} ${ghosts.length === 1 ? "step" : "steps"} ran that the map does not know: ${ghosts.map((g) => `<b>${esc(g.id)}</b> (${g.hits} runs)`).join(", ")}</span></div><button type="button" class="btn" data-act="view" data-arg="runs" data-filter="ghost">See them in Runs</button></div>` : "";
+  const strip = setupStrips() + (ghosts.length ? `<div class="strip"><div class="row"><span class="sq-ghost"></span><span>${ghosts.length} ${ghosts.length === 1 ? "step" : "steps"} ran that the map does not know: ${ghosts.map((g) => `<b>${esc(g.id)}</b> (${g.hits} runs)`).join(", ")}</span></div><button type="button" class="btn" data-act="view" data-arg="runs" data-filter="ghost">See them in Runs</button></div>` : "");
   if (ghosts.length) states.add("ghost");
   const lens = (full.lanes || []).length > 1 ? `<div class="seg" role="group" aria-label="Lens"><button type="button" aria-pressed="${S.lens === "overview"}" data-act="lens" data-arg="overview">Overview</button><button type="button" aria-pressed="${S.lens === "all"}" data-act="lens" data-arg="all">All steps</button></div>` : "";
   return `<div class="body"><main class="main">${strip}${body}${footer(states, note, true, lens)}</main>${S.panelNode ? nodePanel(S.panelNode) : ""}</div>`;
@@ -601,7 +639,7 @@ function render() {
   let body;
   if (!S.data && S.loading) body = `<div class="center">${SVG.spin}Loading pipeline</div>`;
   else if (!S.data) body = `<div class="empty"><b>${esc(S.error || "No pipeline to show.")}</b><span class="muted">A project needs a "pipelines" list in its manifest. See the README.</span><a href="/" class="btn">Back to the project map</a></div>`;
-  else body = S.view === "runs" ? viewRuns() : S.view === "draft" ? viewDraft() : viewMap();
+  else body = S.view === "runs" ? viewRuns() : S.view === "draft" ? viewDraft() : S.view === "setup" ? viewSetup() : viewMap();
   app.innerHTML = topBar() + body;
 
   app.querySelectorAll("[data-keep]").forEach((el) => { const k = keep[el.dataset.keep]; if (k) { el.scrollLeft = k[0]; el.scrollTop = k[1]; } });
@@ -650,7 +688,7 @@ async function loadProject(id, wantPipeline) {
   const m = await getJson(`/api/project/${encodeURIComponent(id)}`);
   S.manifestPipelines = m.pipelines || [];
   S.pipelineId = S.manifestPipelines.some((p) => p.id === wantPipeline) ? wantPipeline : S.manifestPipelines[0]?.id || null;
-  S.lens = null; S.openLanes = new Set();
+  S.lens = null; S.openLanes = new Set(); S.source = null; S.showFiles = false;
   S.data = null; S.picked = null; S.step = null; S.panelNode = null; S.draft = null; S.result = null; S.changedIds = null; S.userZoomed = false; S.zoom = null;
   if (S.filter === "changed") S.filter = "all";
   await loadPipeline();
@@ -663,6 +701,7 @@ async function loadPipeline({ quiet = false } = {}) {
     const base = `/api/project/${encodeURIComponent(S.project)}/pipeline/${encodeURIComponent(S.pipelineId)}`;
     const [data, drafts] = await Promise.all([getJson(base), getJson(`${base}/drafts`)]);
     S.data = data; S.drafts = drafts; S.error = null; S.fetchedAt = Date.now();
+    if (!quiet || !S.source) loadSource();
     const params = new URLSearchParams(location.search);
     const wantRun = params.get("run");
     if (!quiet && wantRun && !S.picked) { const r = data.runs.find((x) => x.runId.startsWith(wantRun)); if (r) { S.picked = r.runId; S.scrollPicked = true; } }
@@ -675,6 +714,15 @@ async function loadPipeline({ quiet = false } = {}) {
     syncUrl();
     render();
   }
+}
+
+async function loadSource(refresh = false) {
+  try {
+    S.source = await getJson(`/api/project/${encodeURIComponent(S.project)}/source${refresh ? "?refresh=1" : ""}`);
+  } catch (err) {
+    S.source = { error: `Setup unavailable: ${err.message}` };
+  }
+  render();
 }
 
 async function replay() {
@@ -739,6 +787,8 @@ document.addEventListener("click", (ev) => {
     case "view": S.view = arg; S.userZoomed = false; if (el.dataset.filter) S.filter = el.dataset.filter; if (arg !== "map") S.panelNode = null; syncUrl(); break;
     case "node": if (S.view === "map") S.panelNode = S.panelNode === arg ? null : arg; break;
     case "close-panel": S.panelNode = null; break;
+    case "toggle-files": S.showFiles = !S.showFiles; break;
+    case "setup-refresh": S.source = null; render(); loadSource(true); return;
     case "lens": S.lens = arg; S.openLanes = new Set(); S.userZoomed = false; break;
     case "open-lane": S.openLanes.add(arg); S.userZoomed = false; break;
     case "fold-lane": S.openLanes.delete(arg); S.userZoomed = false; break;
@@ -772,7 +822,7 @@ setInterval(() => { if (document.visibilityState === "visible" && S.data && S.vi
 
 (async function init() {
   const q = new URLSearchParams(location.search);
-  if (["map", "runs", "draft"].includes(q.get("view"))) S.view = q.get("view");
+  if (["map", "runs", "draft", "setup"].includes(q.get("view"))) S.view = q.get("view");
   render();
   try {
     const all = await getJson("/api/projects");

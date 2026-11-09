@@ -156,6 +156,33 @@ Runs can show what the person typed, so a run is easy to find. That text never g
 - `node bin/xpm.js prune events/<project> --days 14` deletes old events and their previews together.
 - A run without a preview shows `(no preview)`.
 
+### Source profile: where the code really lives
+
+XPM adapts to each product; it never asks a product to change how it deploys. Each project gets one entry in `.xpm-projects.json` (git-ignored, or `XPM_PROJECTS`) on the machine XPM runs on. The **Setup** screen shows the six settings with what is true on that machine right now, and the Map says **Not set up** until a project has one.
+
+```json
+{
+  "compass": {
+    "truth":  { "label": "Live files on agent-host", "repo": "compass" },
+    "mirror": { "label": "GitHub pandastick/compass main", "checkout": "compass-git", "ref": "origin/main", "paths": ["telegram", "miniapp"], "fetch": false },
+    "runsOn": "agent-host",
+    "traces": { "writer": "ASE", "previews": false, "neverPreview": ["privacy turns", "forwards"] },
+    "access": { "label": "Peter's Tailscale login only" },
+    "mapOwner": "ase",
+    "confirmed": { "by": "ase", "at": "2026-11-09", "note": "26 of 26 anchors against live box bytes" }
+  }
+}
+```
+
+| Setting | Meaning |
+|---|---|
+| `truth.repo` | The repo name the map's anchors use, mapped to a folder in `.xpm-repos.json`. `xpm check` and the anchor status read this folder. |
+| `mirror` | Optional. A git checkout (repo name or absolute path) and a ref to compare the truth with, file by file over `paths` (`prefix` when the mirror keeps them in a subfolder). XPM reports the drift; it never enforces it. `fetch: true` lets XPM run `git fetch` first. |
+| `runsOn` | The machine where the truth and the traces are readable. On any other machine Setup says so. |
+| `traces` | Who writes them, whether previews of typed text are on, and what is never previewed. The events folder itself is `XPM_EVENTS_DIR/<project>`. |
+| `access` | A label. The real gate is `XPM_ALLOWED_LOGINS`; with previews on and no gate, Setup flags it (unless `public: true`, for synthetic data). |
+| `mapOwner`, `confirmed` | Who confirms the map against the truth, and when they last did. |
+
 ### Serving it on a tailnet
 
 - `HOST` (default `127.0.0.1`): XPM listens on loopback only. Put `tailscale serve` (or another proxy) in front to reach it from other devices.
