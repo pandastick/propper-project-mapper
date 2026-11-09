@@ -1,6 +1,7 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 
 // Load .env file if it exists (no dependency needed)
 const envPath = path.join(__dirname, ".env");
@@ -33,6 +34,8 @@ function manifestFiles() {
 const EVENTS_DIR = process.env.XPM_EVENTS_DIR || path.join(__dirname, "events");
 const DRAFTS_DIR = process.env.XPM_DRAFTS_DIR || path.join(__dirname, "drafts");
 const REPOS_FILE = process.env.XPM_REPOS || path.join(__dirname, ".xpm-repos.json");
+// Per project: where the code really lives (truth), what to compare it with (mirror), and how XPM is set up for it.
+const PROFILES_FILE = process.env.XPM_PROJECTS || path.join(__dirname, ".xpm-projects.json");
 const EXAMPLES = path.join(__dirname, "examples");
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,80}$/i;
 const xpm = require("./lib/pipeline");
@@ -130,6 +133,49 @@ app.get("/api/project/:id", (req, res) => {
   } catch (err) {
     res.status(500).json({ error: `Invalid JSON: ${err.message}` });
   }
+});
+
+function profileFor(project) {
+  const example = project.startsWith("example-") ? xpm.loadProfiles(path.join(__dirname, ".xpm-projects.example.json")) : {};
+  return { ...example, ...xpm.loadProfiles(PROFILES_FILE) }[project] || null;
+}
+
+// Comparing two trees reads every file: keep the answer 10 minutes, or until ?refresh=1.
+const mirrorCache = new Map();
+function mirrorFor(project, profile, repos) {
+  if (!profile?.mirror) return null;
+  const hit = mirrorCache.get(project);
+  if (hit && Date.now() - hit.at < 600000) return hit.data;
+  const m = profile.mirror;
+  const checkout = repos[m.checkout] || (path.isAbsolute(m.checkout) ? m.checkout : null);
+  const truthRoot = repos[profile.truth?.repo];
+  let data;
+  if (!checkout || !truthRoot) data = { error: `${!checkout ? `mirror checkout ${m.checkout}` : `truth repo ${profile.truth?.repo}`} is not in the repos file on this machine` };
+  else {
+    try { data = xpm.compareMirror({ truthRoot, checkout, ref: m.ref, paths: m.paths, prefix: m.prefix, fetch: !!m.fetch }); }
+    catch (err) { data = { error: `compare failed: ${String(err.message).split("\n")[0].slice(0, 160)}` }; }
+  }
+  mirrorCache.set(project, { at: Date.now(), data });
+  return data;
+}
+
+// Setup: the six settings of a project, with what is true on this machine
+app.get("/api/project/:id/source", (req, res) => {
+  const profile = profileFor(req.params.id);
+  const errors = profile ? xpm.validateProfile(profile) : [];
+  const repos = reposFor(req.params.id);
+  if (req.query.refresh) mirrorCache.delete(req.params.id);
+  const mirror = errors.length ? null : mirrorFor(req.params.id, profile, repos);
+  const facts = xpm.setupFacts(errors.length ? null : profile, {
+    repos, mirror, hostname: os.hostname(), eventsDir: eventsDirFor(req.params.id),
+    allowedLogins: ALLOWED_LOGINS.length, loopback: LOOPBACK,
+  });
+  const cap = (list) => (list || []).slice(0, 100);
+  res.json({
+    configured: facts.configured, errors, rows: facts.rows,
+    mirror: mirror && !mirror.error ? { ...mirror, differ: cap(mirror.differ), onlyTruth: cap(mirror.onlyTruth), onlyMirror: cap(mirror.onlyMirror) } : mirror,
+    generatedAt: new Date().toISOString(),
+  });
 });
 
 // Pipeline: the map, its code check, and the last runs laid over it

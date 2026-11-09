@@ -165,3 +165,14 @@ footer.bar { border-top: 1px solid var(--line); margin-top: auto; }
 @media (max-width: 860px) {
   .scroll { flex: none; height: 52vh; min-height: 200px; }
 }
+
+/* Setup */
+.setup { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 980px; }
+.setup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.setup-row { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.setup-v { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.setup-v .small, .small { font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
+.files { display: flex; flex-direction: column; gap: 4px; }
+.files ul { margin: 0; padding-left: 16px; }
+.setup code { color: var(--ink); }
+@media (max-width: 600px) { .setup-row { grid-template-columns: 1fr; gap: 6px; } }
