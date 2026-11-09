@@ -7,6 +7,8 @@
   --cold-line: #2a2a2e; --cold-bg: #0e0e10; --cold-ink: #8a8a90;
   --draft: #60a5fa; --draft-bg: #0e1218;
   --r: 6px;
+  color-scheme: dark;
+  scrollbar-color: #26262a #0a0a0b;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--ground); color: var(--ink); }
@@ -23,7 +25,7 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--ink); outline-o
 /* Bars */
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; background: var(--bar); }
 header.bar { border-bottom: 1px solid var(--line); position: relative; z-index: 3; }
-footer.bar { border-top: 1px solid var(--line); }
+footer.bar { border-top: 1px solid var(--line); margin-top: auto; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .brand { font-weight: 600; letter-spacing: 2px; color: var(--muted); padding-right: 6px; }
 .pick-btn { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--card); border: 1px solid var(--line); border-radius: var(--r); max-width: 100%; }
@@ -101,6 +103,7 @@ footer.bar { border-top: 1px solid var(--line); }
 .node.cold { border-color: var(--cold-line); background: var(--cold-bg); color: var(--cold-ink); }
 .node.cold .k, .node.cold .st, .node.cold .flag { color: var(--dim); } .node.cold .port { border-color: var(--strong); }
 .node.current { border-color: var(--ink); background: var(--pick); } .node.current .port, .node.current .flag { border-color: var(--ink); color: var(--ink); }
+.node.current.failing .flag { color: var(--fail); }
 .node.ghost { border: 1px dashed var(--fail); background: var(--ghost-bg); } .node.ghost .k, .node.ghost .flag { color: var(--fail); } .node.ghost .port { border-color: var(--fail); }
 .node.draft { border: 1px dashed var(--draft); background: var(--draft-bg); } .node.draft .k, .node.draft .st, .node.draft .flag { color: var(--draft); } .node.draft .port { border-color: var(--draft); }
 .node.changed .flag { color: var(--draft); }
@@ -139,22 +142,25 @@ footer.bar { border-top: 1px solid var(--line); }
 .step.end-failed > span:first-child { color: var(--fail); }
 
 /* Draft result */
-.result { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 16px; background: var(--bar); border-top: 1px solid var(--line); max-height: 45vh; overflow: auto; }
+.result { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 14px; background: var(--bar); border-top: 1px solid var(--line); max-height: 45vh; overflow: auto; }
 .result .verdict { margin: 0; font-size: 16px; line-height: 24px; font-weight: 500; }
 .result p { margin: 0; line-height: 18px; }
 .result table { width: 100%; border-collapse: collapse; }
-.result caption { text-align: left; padding-bottom: 6px; color: var(--muted); font-size: 11px; }
+.result caption { text-align: left; padding-bottom: 4px; color: var(--muted); font-size: 11px; }
 .result th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
-.result td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--band-line); }
+.result td { padding: 4px 8px 4px 0; border-bottom: 1px solid var(--band-line); }
 .empty { margin: auto; max-width: 460px; padding: 32px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; line-height: 18px; }
 .center { display: flex; align-items: center; justify-content: center; gap: 10px; flex: 1; color: var(--muted); }
 .err { color: var(--fail); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* Phone and narrow iPad split view: the rail stacks under the canvas and the page scrolls. */
-@media (max-width: 860px) {
+/* iPad portrait, split view and phone: the rail stacks under the canvas and fills what is left. */
+@media (max-width: 1100px) {
   .body { flex-direction: column; overflow: auto; }
   .main { flex: none; }
-  .side { flex: none; border-left: 0; border-top: 1px solid var(--line); max-height: 70vh; }
-  .scroll { flex: none; height: 52vh; min-height: 300px; }
+  .side { flex: 1 0 360px; border-left: 0; border-top: 1px solid var(--line); }
+  .main > footer.bar { margin-top: 0; }
+}
+@media (max-width: 860px) {
+  .scroll { flex: none; height: 52vh; min-height: 200px; }
 }

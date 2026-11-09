@@ -31,8 +31,8 @@ Don't take our word for it - `server.js` is ~80 lines. The entire codebase is un
 ## Quick Start
 
 ```bash
-git clone https://github.com/pandastick/propper-project-mapper.git
-cd propper-project-mapper
+git clone https://github.com/pandastick/xpm.git
+cd xpm
 npm install
 ```
 
@@ -313,7 +313,7 @@ PPM can live anywhere. Two common patterns:
 **Alongside your projects** (recommended for multi-project):
 ```
 ~/projects/
-  propper-project-mapper/    <-- here
+  xpm/    <-- here
   my-app/
   my-other-app/
 ```
@@ -321,7 +321,7 @@ PPM can live anywhere. Two common patterns:
 **Inside a single project** (for dedicated use):
 ```
 ~/projects/my-app/
-  tools/propper-project-mapper/    <-- here
+  tools/xpm/    <-- here
   src/
   package.json
 ```
@@ -329,7 +329,7 @@ PPM can live anywhere. Two common patterns:
 ## File Structure
 
 ```
-propper-project-mapper/
+xpm/
   server.js           Express server, serves manifests as API
   package.json        Dependencies (just express)
   agent.md            Instructions for AI agents to auto-setup

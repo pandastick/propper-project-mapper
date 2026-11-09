@@ -66,7 +66,7 @@ const runMs = (r) => Math.max(0, Date.parse(r.endedAt) - Date.parse(r.startedAt)
 
 // ---------- layout ----------
 // Columns by longest path, lanes kept in order left to right, rows by the parents' height.
-function layout(p, ghosts = []) {
+function layout(p) {
   const nodes = p.nodes.map((n) => n.id);
   const byId = new Map(p.nodes.map((n) => [n.id, n]));
   const lanes = Array.isArray(p.lanes) && p.lanes.length ? p.lanes : [];
@@ -132,16 +132,6 @@ function layout(p, ghosts = []) {
   // the top card sits at TOP
   const top = Math.min(...y.values());
   const xy = new Map(nodes.map((id) => [id, { x: LEFT + col.get(id) * COL, y: TOP + y.get(id) - top }]));
-
-  // ghosts: under the gap between the steps around them, or one column right of the last step
-  for (const g of ghosts) {
-    const prev = xy.get(g.after) || { x: LEFT, y: TOP };
-    const next = g.before && xy.get(g.before);
-    const at = next && next.x > prev.x ? { x: (prev.x + next.x) / 2, y: Math.max(prev.y, next.y) + NODE_H + 50 } : { x: prev.x + COL, y: prev.y };
-    const taken = () => [...xy.values()].some((v) => Math.abs(v.x - at.x) < NODE_W && Math.abs(v.y - at.y) < NODE_H + 20);
-    while (taken()) at.y += 100;
-    xy.set(g.id, at);
-  }
 
   const all = [...xy.values()];
   const width = Math.max(...all.map((v) => v.x)) + NODE_W + LEFT;
@@ -282,7 +272,7 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
   let paths = "", chips = "";
   for (const e of p.edges || []) {
     const a = L.xy.get(e.from), b = L.xy.get(e.to);
-    if (!a || !b) continue;
+    if (!a || !b || e.ghostHop) continue;
     const g = edgePath(a, b);
     const s = edgeLook(e);
     paths += `<path d="${g.d}" stroke="${s.stroke}" stroke-width="${s.width}"${s.dash ? ' stroke-dasharray="4 3"' : ""}></path>`;
@@ -301,7 +291,7 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
     return `<button type="button" class="node ${v.cls || ""}" style="left:${x}px;top:${y}px" data-act="${v.act || "node"}" data-arg="${esc(v.arg ?? id)}" aria-label="${esc(v.aria)}"${v.expanded != null ? ` aria-expanded="${v.expanded}"` : ""}>
       <span class="port in" aria-hidden="true"></span><span class="port out" aria-hidden="true"></span>
       ${v.live ? '<span class="live-dot" aria-hidden="true"></span>' : ""}
-      <span class="k">${icon(v.kind || n.kind)}<span>${esc(v.kind || n.kind)}</span><span class="flag">${esc(v.flag || "")}</span></span>
+      <span class="k">${icon(v.kind || n.kind)}<span>${esc(v.kindLabel ?? (v.kind || n.kind))}</span><span class="flag">${esc(v.flag || "")}</span></span>
       <span class="nm">${esc(n.name || id)}</span>
       <span class="st">${esc(v.stat || "")}</span>
     </button>`;
@@ -375,8 +365,15 @@ function viewRuns() {
   const run = pickedRun();
   const declared = new Set(p.nodes.map((n) => n.id));
   const ghostIds = run.path.filter((id) => !declared.has(id));
-  const ghosts = ghostIds.map((id) => { const i = run.path.indexOf(id); return { id, after: run.path[i - 1], before: declared.has(run.path[i + 1]) ? run.path[i + 1] : null }; });
-  const L = layout(p, ghosts);
+  // Ghost steps get their own column, laid out like a draft step, so no hop runs right to left.
+  const withGhosts = { ...p, nodes: [...p.nodes], edges: [...(p.edges || [])] };
+  for (const id of ghostIds) {
+    const i = run.path.indexOf(id), before = run.path[i - 1], after = run.path[i + 1];
+    withGhosts.nodes.push({ id, name: id, kind: "unknown", lane: p.nodes.find((n) => n.id === before)?.lane, ghost: true });
+    if (before) withGhosts.edges.push({ from: before, to: id, ghostHop: true });
+    if (after) withGhosts.edges.push({ from: id, to: after, ghostHop: true });
+  }
+  const L = layout(withGhosts);
   const onPath = new Set(run.path);
   const step = Math.min(S.step ?? defaultStep(run), run.path.length - 1);
   const cur = run.path[step];
@@ -388,7 +385,7 @@ function viewRuns() {
     const idx = run.path.indexOf(n.id);
     const s = S.data.overlay.nodes[n.id] || {};
     const v = { cls: "", flag: "", stat: idx >= 0 ? `step ${idx + 1} · ${ms(run.durations[n.id]) || "0 ms"}` : mapStat(n.id), act: idx >= 0 ? "step" : "node" };
-    if (!declared.has(n.id)) { v.cls = "ghost"; v.kind = "unknown"; v.flag = "not on map"; states.add("ghost"); }
+    if (!declared.has(n.id)) { v.cls = "ghost"; v.kind = "unknown"; v.kindLabel = ""; v.flag = "not on map"; states.add("ghost"); }
     else if (s.state === "cold") { v.cls = "cold"; v.flag = "cold"; states.add("cold"); }
     if (idx >= 0) v.cls += " path";
     if (n.id === cur) { v.cls += " current"; if (declared.has(n.id)) v.flag = "now"; }
@@ -408,8 +405,7 @@ function viewRuns() {
     const from = run.path[i];
     if (declared.has(id) && declared.has(from)) return;
     const a = L.xy.get(from), b = L.xy.get(id);
-    // hops through a ghost go port to port with a soft curve, whatever the direction
-    if (a && b) extra += `<path d="M${a.x + NODE_W} ${a.y + NODE_H / 2} C${a.x + NODE_W + 40} ${a.y + NODE_H / 2} ${b.x - 40} ${b.y + NODE_H / 2} ${b.x} ${b.y + NODE_H / 2}" stroke="#f87171" stroke-width="1.6" stroke-dasharray="4 3"></path>`;
+    if (a && b) extra += `<path d="${edgePath(a, b).d}" stroke="#f87171" stroke-width="1.6" stroke-dasharray="4 3"></path>`;
   });
   let endChip = "";
   if (run.status === "failed") {
@@ -419,7 +415,7 @@ function viewRuns() {
       endChip = `<span class="chip end" style="left:${last.x + NODE_W / 2}px;top:${last.y + NODE_H + 12}px">run failed</span>`;
     }
   }
-  const html = canvas(p, L, look, edgeLook, extra, endChip);
+  const html = canvas(withGhosts, L, look, edgeLook, extra, endChip);
 
   const total = runMs(run);
   const failIdx = Object.keys(run.errors).length ? run.path.indexOf(Object.keys(run.errors)[0]) : -1;
@@ -458,7 +454,7 @@ function rail(picked) {
   const rows = list.map((r) => {
     const g = isGhostRun(r) ? '<span class="sq-ghost"></span>' : r.status === "failed" ? '<span class="dot fail"></span>' : r.status === "running" ? '<span class="dot live"></span>' : '<span class="dot done"></span>';
     const where = outcome(r.path, r);
-    const wc = r.status === "failed" || isGhostRun(r) ? "red" : "";
+    const wc = r.status === "failed" ? "red" : "";
     const text = r.preview ? `“${esc(r.preview)}”` : '<span class="muted">(no preview)</span>';
     const sent = r.sentAt ? `${esc(clock(r.sentAt))} · ` : "";
     return `<li><button type="button" class="run" data-act="pick" data-arg="${esc(r.runId)}" aria-pressed="${picked && r.runId === picked.runId}" aria-label="${esc(`${r.preview || "no preview"}, ${r.sentAt ? `sent ${clock(r.sentAt)}, ` : ""}run ${short(r.runId)}, ${where}, ${ms(runMs(r))}`)}">
@@ -492,7 +488,7 @@ function viewDraft() {
     if (n.draft) {
       const a = n.assume || {};
       v.cls = "draft"; v.flag = "new";
-      v.stat = res ? `${res.passesNewCount} of ${res.runCount} pass${Number.isFinite(a.latencyMs) ? ` · ${ms(a.latencyMs)}` : ""}` : Number.isFinite(a.latencyMs) ? `about ${ms(a.latencyMs)}` : "passes through";
+      v.stat = res ? `${res.passesNewCount} pass${Number.isFinite(a.latencyMs) ? ` · +${ms(a.latencyMs)}` : ""}` : Number.isFinite(a.latencyMs) ? `about +${ms(a.latencyMs)}` : "passes through";
     } else if (s.state === "failing") { v.cls = "failing"; v.flag = `${s.failures} failed`; states.add("failing"); }
     else if (s.state === "cold") { v.cls = "cold"; v.flag = "cold"; states.add("cold"); }
     if (changedFrom.has(n.id)) { v.cls += " changed"; v.flag = "changed"; }
@@ -539,14 +535,13 @@ function resultPanel(dp, d, res) {
   const more = changedRuns.length > 6 ? `<tr><td colspan="3" class="muted">and ${changedRuns.length - 6} more, all in Runs</td></tr>` : "";
   const sign = res.medianAddedMs > 0 ? "+" : "";
   return `<section class="result" aria-label="Replay result">
-    <div class="row" style="justify-content:space-between"><span class="muted">Replay of ${res.runCount} recorded runs · recorded decisions only, no product code ran</span><button type="button" class="icon-btn" aria-label="Close result panel" data-act="close-result">${SVG.close}</button></div>
     <div class="row" style="align-items:flex-start;gap:24px">
-      <div style="flex:1 1 380px;min-width:0;display:flex;flex-direction:column;gap:10px">
+      <div style="flex:1 1 380px;min-width:0;display:flex;flex-direction:column;gap:8px">
         <p class="verdict">${res.changedCount} of ${res.runCount} runs change route, ${res.passesNewCount} pass the new ${newNodes.length === 1 ? "step" : "steps"}, ${sign}${ms(res.medianAddedMs || 0)}</p>
-        <p class="muted">${esc(timeText + forkText)}</p>${fidelity}
+        <p class="muted">${esc(timeText + forkText)} Replay of ${res.runCount} recorded runs: recorded decisions only, no product code ran.</p>${fidelity}
         <div class="row" style="padding-top:6px"><button type="button" class="btn primary" data-act="export">${SVG.down}Export spec</button>${changedRuns.length ? `<button type="button" class="btn" data-act="see-changed">See the ${changedRuns.length} ${changedRuns.length === 1 ? "run" : "runs"} in Runs</button>` : ""}</div>
       </div>
-      ${changedRuns.length ? `<div style="flex:1 1 420px;min-width:0;overflow-x:auto"><table><caption>Runs that change route</caption><thead><tr><th scope="col">run</th><th scope="col">was</th><th scope="col">now</th></tr></thead><tbody>${rows}${more}</tbody></table></div>` : ""}
+      ${changedRuns.length ? `<div style="flex:1 1 420px;min-width:0;overflow-x:auto;display:flex;gap:8px;align-items:flex-start"><table><caption>Runs that change route</caption><thead><tr><th scope="col">run</th><th scope="col">was</th><th scope="col">now</th></tr></thead><tbody>${rows}${more}</tbody></table><button type="button" class="icon-btn" aria-label="Close result panel" data-act="close-result">${SVG.close}</button></div>` : `<button type="button" class="icon-btn" aria-label="Close result panel" data-act="close-result">${SVG.close}</button>`}
     </div></section>`;
 }
 
@@ -568,15 +563,23 @@ function render() {
     const el = [...app.querySelectorAll(`[data-act="${act}"]`)].find((x) => (x.dataset.arg || "") === arg);
     if (el) el.focus({ preventScroll: true });
   }
-  if (S.data && !S.userZoomed) {
-    const sc = app.querySelector(".scroll");
-    const stage = app.querySelector(".stage");
-    if (sc && stage) {
-      const w = parseFloat(stage.style.width), h = parseFloat(stage.style.height);
-      // Fit, but never below a readable size: past that the canvas scrolls.
+  const sc = app.querySelector(".scroll");
+  const stage = app.querySelector(".stage");
+  if (S.data && sc && stage) {
+    const w = parseFloat(stage.style.width), h = parseFloat(stage.style.height);
+    if (!S.userZoomed) {
+      // Fit after the rail and panels took their space; never below a readable size, past that the canvas pans.
       const z = Math.max(0.55, Math.min(1, (sc.clientWidth - 48) / w, (sc.clientHeight - 48) / h));
-      if (Math.abs(z - (S.zoom || 0)) > 0.01) { S.zoom = Math.round(z * 100) / 100; render(); }
+      if (Math.abs(z - (S.zoom || 0)) > 0.01) { S.zoom = Math.round(z * 100) / 100; render(); return; }
     }
+    // iPad portrait and phone: when the graph is shorter than the room, the canvas is only as tall as the
+    // graph, so the scrubber and the runs list move up under it. Wide screens keep the full canvas.
+    const need = Math.ceil(h * (S.zoom || 1) + 48);
+    if (window.innerWidth <= 1100 && need < sc.clientHeight) sc.style.flex = `0 0 ${need}px`;
+  }
+  if (S.scrollPicked) {
+    S.scrollPicked = false;
+    app.querySelector('.run[aria-pressed="true"]')?.scrollIntoView({ block: "nearest" });
   }
 }
 
@@ -614,7 +617,7 @@ async function loadPipeline({ quiet = false } = {}) {
     S.data = data; S.drafts = drafts; S.error = null; S.fetchedAt = Date.now();
     const params = new URLSearchParams(location.search);
     const wantRun = params.get("run");
-    if (!quiet && wantRun && !S.picked) { const r = data.runs.find((x) => x.runId.startsWith(wantRun)); if (r) S.picked = r.runId; }
+    if (!quiet && wantRun && !S.picked) { const r = data.runs.find((x) => x.runId.startsWith(wantRun)); if (r) { S.picked = r.runId; S.scrollPicked = true; } }
     const want = params.get("draft");
     if (!quiet && want && S.view === "draft" && !S.draft) { const d = drafts.find((x) => x.file === want); if (d) setTimeout(() => openDraft(d), 0); }
   } catch (err) {
@@ -690,7 +693,7 @@ document.addEventListener("click", (ev) => {
     case "close-panel": S.panelNode = null; break;
     case "pick": S.picked = arg; S.step = null; syncUrl(); break;
     case "step": S.step = Number(arg); if (S.picked == null) S.picked = pickedRun()?.runId; break;
-    case "filter": S.filter = arg; { const first = filteredRuns()[0]; if (first && !filteredRuns().some((r) => r.runId === S.picked)) { S.picked = first.runId; S.step = null; } } break;
+    case "filter": S.filter = arg; S.scrollPicked = true; { const first = filteredRuns()[0]; if (first && !filteredRuns().some((r) => r.runId === S.picked)) { S.picked = first.runId; S.step = null; } } break;
     case "rail": S.railOpen = arg === "1"; break;
     case "zoom": S.userZoomed = true; S.zoom = Math.max(0.3, Math.min(2, Math.round(((S.zoom || 1) + Number(arg) * 0.1) * 100) / 100)); break;
     case "fit": S.userZoomed = false; S.zoom = null; break;
@@ -700,7 +703,7 @@ document.addEventListener("click", (ev) => {
     case "discard": S.draftClosed = true; S.draft = null; S.result = null; S.replayError = null; break;
     case "close-result": S.resultOpen = false; break;
     case "export": exportSpec(); return;
-    case "see-changed": S.changedIds = new Set(S.result.perRun.filter((r) => r.changed).map((r) => r.runId)); S.filter = "changed"; S.view = "runs"; S.picked = null; S.step = null; S.userZoomed = false; syncUrl(); break;
+    case "see-changed": S.scrollPicked = true; S.changedIds = new Set(S.result.perRun.filter((r) => r.changed).map((r) => r.runId)); S.filter = "changed"; S.view = "runs"; S.picked = null; S.step = null; S.userZoomed = false; syncUrl(); break;
     default: return;
   }
   render();
