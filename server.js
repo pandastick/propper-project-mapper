@@ -13,7 +13,17 @@ if (fs.existsSync(envPath)) {
 
 const app = express();
 const PORT = process.env.PORT || 3333;
-const MANIFESTS_DIR = process.env.MANIFESTS_DIR || path.join(__dirname, "manifests");
+// One folder or several, separated like PATH (":" on macOS and Linux). The first folder that has a project wins.
+const MANIFESTS_DIRS = (process.env.MANIFESTS_DIR || path.join(__dirname, "manifests")).split(path.delimiter).filter(Boolean);
+const manifestPath = (id) => MANIFESTS_DIRS.map((d) => path.join(d, `${id}.json`)).find((f) => fs.existsSync(f)) || path.join(MANIFESTS_DIRS[0], `${id}.json`);
+function manifestFiles() {
+  const seen = new Map();
+  for (const d of MANIFESTS_DIRS) {
+    if (!fs.existsSync(d)) continue;
+    for (const f of fs.readdirSync(d).filter((x) => x.endsWith(".json"))) if (!seen.has(f)) seen.set(f, path.join(d, f));
+  }
+  return [...seen.values()];
+}
 // Private execution events and drafts live outside git (see .gitignore). Examples ship under examples/.
 const EVENTS_DIR = process.env.XPM_EVENTS_DIR || path.join(__dirname, "events");
 const DRAFTS_DIR = process.env.XPM_DRAFTS_DIR || path.join(__dirname, "drafts");
@@ -30,7 +40,7 @@ app.param("id", (req, res, next, id) => (ID_RE.test(id) ? next() : res.status(40
 app.param("pid", (req, res, next, id) => (ID_RE.test(id) ? next() : res.status(400).json({ error: "Bad pipeline id" })));
 
 function readManifest(id) {
-  const filePath = path.join(MANIFESTS_DIR, `${id}.json`);
+  const filePath = manifestPath(id);
   if (!fs.existsSync(filePath)) return null;
   return JSON.parse(fs.readFileSync(filePath, "utf-8"));
 }
@@ -67,12 +77,12 @@ function reposFor(project) {
 
 // List all available project manifests
 app.get("/api/projects", (req, res) => {
-  const files = fs.readdirSync(MANIFESTS_DIR).filter((f) => f.endsWith(".json"));
+  const files = manifestFiles();
   const projects = [];
 
   files.forEach((f) => {
     try {
-      const data = JSON.parse(fs.readFileSync(path.join(MANIFESTS_DIR, f), "utf-8"));
+      const data = JSON.parse(fs.readFileSync(f, "utf-8"));
       projects.push({
         id: data.id,
         name: data.name,
@@ -92,7 +102,7 @@ app.get("/api/projects", (req, res) => {
 
 // Get a specific project manifest
 app.get("/api/project/:id", (req, res) => {
-  const filePath = path.join(MANIFESTS_DIR, `${req.params.id}.json`);
+  const filePath = manifestPath(req.params.id);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: "Project not found" });
   }
@@ -160,7 +170,7 @@ app.post("/api/project/:id/pipeline/:pid/simulate", (req, res) => {
 
 // Validate a manifest (re-reads and reports stats)
 app.post("/api/regenerate/:id", (req, res) => {
-  const filePath = path.join(MANIFESTS_DIR, `${req.params.id}.json`);
+  const filePath = manifestPath(req.params.id);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ success: false, error: "Manifest not found" });
   }
@@ -180,7 +190,7 @@ app.post("/api/regenerate/:id", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  const count = fs.readdirSync(MANIFESTS_DIR).filter((f) => f.endsWith(".json")).length;
-  console.log(`\n  PPM (Propper Project Mapper) running at http://localhost:${PORT}`);
-  console.log(`  Manifests: ${MANIFESTS_DIR} (${count} projects)\n`);
+  const count = manifestFiles().length;
+  console.log(`\n  XPM (Xcali Project Mapper) running at http://localhost:${PORT}`);
+  console.log(`  Manifests: ${MANIFESTS_DIRS.join(", ")} (${count} projects)\n`);
 });
