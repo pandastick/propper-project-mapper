@@ -16,6 +16,7 @@ const ICONS = {
   sender: "M2 7.5L14 2.5L9.5 14L7.5 9.5z M7.5 9.5L14 2.5",
   hook: "M8 2.5v6.5a3 3 0 1 1-3-3 M8 2.5l2 2",
   store: "M3 4.5c0-1.1 2.2-2 5-2s5 .9 5 2v7c0 1.1-2.2 2-5 2s-5-.9-5-2z M3 4.5c0 1.1 2.2 2 5 2s5-.9 5-2",
+  lane: "M2.5 4h11 M2.5 8h11 M2.5 12h11",
   unknown: "M8 2.5a5.5 5.5 0 1 1 0 11a5.5 5.5 0 0 1 0-11z M6.3 6.4a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1 M8 11.2h.01",
 };
 
@@ -26,7 +27,34 @@ const S = {
   filter: "all", picked: null, step: null, railOpen: true, changedIds: null,
   drafts: [], draft: null, draftSavedAt: null, result: null, resultOpen: false, replaying: false, replayError: null,
   zoom: null, userZoomed: false,
+  lens: null, openLanes: new Set(),   // Map lens: "overview" folds lanes into one card each, "all" shows every step
 };
+
+// The lens: fold every lane that is not open into one card, so a long pipeline reads at a glance.
+function foldLanes(p, open) {
+  const fold = new Set((p.lanes || []).filter((l) => !open.has(l) && p.nodes.filter((n) => n.lane === l).length > 1));
+  if (!fold.size) return p;
+  const to = new Map(), nodes = [], cards = new Map();
+  for (const n of p.nodes) {
+    if (!fold.has(n.lane)) { to.set(n.id, n.id); nodes.push(n); continue; }
+    const id = `lane:${n.lane}`;
+    to.set(n.id, id);
+    if (!cards.has(id)) { const c = { id, name: n.lane, kind: "lane", lane: n.lane, members: [] }; cards.set(id, c); nodes.push(c); }
+    cards.get(id).members.push(n.id);
+  }
+  const edges = [], seen = new Map();
+  for (const e of p.edges || []) {
+    const a = to.get(e.from), b = to.get(e.to);
+    if (!a || !b || a === b) continue;
+    const key = `${a}->${b}`;
+    // A condition only stays when its own step is still drawn and it is the only link to that card.
+    if (seen.has(key)) { delete seen.get(key).when; continue; }
+    const v = a === e.from && e.when ? { from: a, to: b, when: e.when } : { from: a, to: b };
+    seen.set(key, v);
+    edges.push(v);
+  }
+  return { ...p, nodes, edges, entry: to.get(p.entry) };
+}
 
 // ---------- helpers ----------
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -248,7 +276,7 @@ function topBar() {
   </header>`;
 }
 
-function footer(states, note, zoomable = true) {
+function footer(states, note, zoomable = true, extra = "") {
   const pct = Math.round((S.zoom || 1) * 100);
   const items = {
     path: '<li><span class="sw path"></span>this run</li>',
@@ -259,7 +287,7 @@ function footer(states, note, zoomable = true) {
     draft: '<li><span class="sw draft"></span>draft</li>',
   };
   return `<footer class="bar">
-    ${zoomable ? `<div class="zoom"><button type="button" aria-label="Zoom out" data-act="zoom" data-arg="-1">${SVG.minus}</button><span class="pct" aria-label="Zoom ${pct} percent">${pct}%</span><button type="button" aria-label="Zoom in" data-act="zoom" data-arg="1">${SVG.plus}</button><button type="button" class="fit" data-act="fit">${SVG.fit}Fit</button></div>` : "<span></span>"}
+    ${zoomable ? `<div class="zoom"><button type="button" aria-label="Zoom out" data-act="zoom" data-arg="-1">${SVG.minus}</button><span class="pct" aria-label="Zoom ${pct} percent">${pct}%</span><button type="button" aria-label="Zoom in" data-act="zoom" data-arg="1">${SVG.plus}</button><button type="button" class="fit" data-act="fit">${SVG.fit}Fit</button></div>` : "<span></span>"}${extra}
     <ul class="legend" aria-label="States">${[...states].map((s) => items[s]).join("")}</ul>
     <span class="muted">${esc(note)}</span>
   </footer>`;
@@ -279,10 +307,10 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
     const label = e.when ? `${e.when.decision} = ${e.when.equals}` : deciding.has(e.from) ? "else" : "";
     if (label) chips += `<span class="chip ${s.chip || ""}" style="left:${g.cx}px;top:${g.cy}px">${esc(label)}</span>`;
   }
-  const bands = L.bands.map((b) => {
+  const bands = L.bands.filter((b) => !(b.ids.length === 1 && byId.get(b.ids[0])?.kind === "lane")).map((b) => {
     const nNew = b.ids.filter((id) => byId.get(id)?.draft).length;
     const count = `${b.ids.length} ${b.ids.length === 1 ? "step" : "steps"}${nNew ? `, ${nNew} new` : ""}`;
-    return `<div class="band" style="left:${b.left}px;top:16px;width:${b.width}px;height:${L.bandHeight}px"></div><span class="band-h" style="left:${b.left + 16}px;top:30px">${esc(b.name.toUpperCase())} <span class="dim">· ${count}</span></span>`;
+    return `<div class="band" style="left:${b.left}px;top:16px;width:${b.width}px;height:${L.bandHeight}px"></div>${S.view === "map" && S.lens === "overview" ? `<button type="button" class="band-h fold" style="left:${b.left + 8}px;top:20px" data-act="fold-lane" data-arg="${esc(b.name)}" aria-label="Fold the ${esc(b.name)} lane">${esc(b.name.toUpperCase())} <span class="dim">· ${count} · fold</span></button>` : `<span class="band-h" style="left:${b.left + 16}px;top:30px">${esc(b.name.toUpperCase())} <span class="dim">· ${count}</span></span>`}`;
   }).join("");
   const cards = [...L.xy.keys()].map((id) => {
     const n = byId.get(id) || { id, name: id, kind: "unknown" };
@@ -330,15 +358,34 @@ function mapLook(states) {
 }
 
 function viewMap() {
-  const p = pipeline();
+  const full = pipeline();
+  if (!S.lens) {
+    // Overview first when every step would not fit at a readable size.
+    const room = window.innerWidth - (S.panelNode ? 340 : 0) - 48;
+    S.lens = (full.lanes || []).length > 1 && layout(full).width * 0.55 > room ? "overview" : "all";
+  }
+  const p = S.lens === "overview" ? foldLanes(full, S.openLanes) : full;
   const L = layout(p);
   const states = new Set();
-  const body = canvas(p, L, mapLook(states), () => ({ stroke: "#4a4a50", width: 1.2 }));
+  const look = mapLook(states);
+  const lookLane = (n) => {
+    if (n.kind !== "lane") return look(n);
+    const st = n.members.map((id) => S.data.overlay.nodes[id] || {});
+    const failures = st.reduce((a, x) => a + (x.failures || 0), 0);
+    const into = Math.max(0, ...st.map((x) => x.hits || 0));
+    const v = { act: "open-lane", arg: n.lane, kindLabel: "lane", flag: "open", cls: "", stat: `${n.members.length} steps${into ? ` · ${into} hits` : ""}`, expanded: false };
+    if (failures) { v.cls = "failing"; v.flag = `${failures} failed`; states.add("failing"); }
+    else if (st.every((x) => x.state === "cold")) { v.cls = "cold"; states.add("cold"); }
+    v.aria = `${n.name} lane, ${v.stat}${failures ? `, ${failures} failed` : ""}, tap to open`;
+    return v;
+  };
+  const body = canvas(p, L, lookLane, () => ({ stroke: "#4a4a50", width: 1.2 }));
   const ghosts = S.data.overlay.ghosts || [];
   const note = `hits and median time · last ${S.data.runs.length} runs · updated ${agoWords(S.fetchedAt)}`;
   const strip = ghosts.length ? `<div class="strip"><div class="row"><span class="sq-ghost"></span><span>${ghosts.length} ${ghosts.length === 1 ? "step" : "steps"} ran that the map does not know: ${ghosts.map((g) => `<b>${esc(g.id)}</b> (${g.hits} runs)`).join(", ")}</span></div><button type="button" class="btn" data-act="view" data-arg="runs" data-filter="ghost">See them in Runs</button></div>` : "";
   if (ghosts.length) states.add("ghost");
-  return `<div class="body"><main class="main">${strip}${body}${footer(states, note)}</main>${S.panelNode ? nodePanel(S.panelNode) : ""}</div>`;
+  const lens = (full.lanes || []).length > 1 ? `<div class="seg" role="group" aria-label="Lens"><button type="button" aria-pressed="${S.lens === "overview"}" data-act="lens" data-arg="overview">Overview</button><button type="button" aria-pressed="${S.lens === "all"}" data-act="lens" data-arg="all">All steps</button></div>` : "";
+  return `<div class="body"><main class="main">${strip}${body}${footer(states, note, true, lens)}</main>${S.panelNode ? nodePanel(S.panelNode) : ""}</div>`;
 }
 
 function nodePanel(id) {
@@ -603,6 +650,7 @@ async function loadProject(id, wantPipeline) {
   const m = await getJson(`/api/project/${encodeURIComponent(id)}`);
   S.manifestPipelines = m.pipelines || [];
   S.pipelineId = S.manifestPipelines.some((p) => p.id === wantPipeline) ? wantPipeline : S.manifestPipelines[0]?.id || null;
+  S.lens = null; S.openLanes = new Set();
   S.data = null; S.picked = null; S.step = null; S.panelNode = null; S.draft = null; S.result = null; S.changedIds = null; S.userZoomed = false; S.zoom = null;
   if (S.filter === "changed") S.filter = "all";
   await loadPipeline();
@@ -687,10 +735,13 @@ document.addEventListener("click", (ev) => {
   switch (act) {
     case "menu": S.menu = S.menu === arg ? null : arg; break;
     case "set-project": S.menu = null; loadProject(arg); return;
-    case "set-pipeline": S.menu = null; S.pipelineId = arg; S.userZoomed = false; S.zoom = null; S.picked = null; S.draft = null; S.result = null; loadPipeline(); return;
+    case "set-pipeline": S.menu = null; S.lens = null; S.openLanes = new Set(); S.pipelineId = arg; S.userZoomed = false; S.zoom = null; S.picked = null; S.draft = null; S.result = null; loadPipeline(); return;
     case "view": S.view = arg; S.userZoomed = false; if (el.dataset.filter) S.filter = el.dataset.filter; if (arg !== "map") S.panelNode = null; syncUrl(); break;
     case "node": if (S.view === "map") S.panelNode = S.panelNode === arg ? null : arg; break;
     case "close-panel": S.panelNode = null; break;
+    case "lens": S.lens = arg; S.openLanes = new Set(); S.userZoomed = false; break;
+    case "open-lane": S.openLanes.add(arg); S.userZoomed = false; break;
+    case "fold-lane": S.openLanes.delete(arg); S.userZoomed = false; break;
     case "pick": S.picked = arg; S.step = null; syncUrl(); break;
     case "step": S.step = Number(arg); if (S.picked == null) S.picked = pickedRun()?.runId; break;
     case "filter": S.filter = arg; S.scrollPicked = true; { const first = filteredRuns()[0]; if (first && !filteredRuns().some((r) => r.runId === S.picked)) { S.picked = first.runId; S.step = null; } } break;
