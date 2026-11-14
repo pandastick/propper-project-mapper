@@ -51,6 +51,7 @@
           "kind": "mode",
           "lane": "door",
           "decides": "mode",
+          "values": ["normal", "planner", "privacy"],
           "owner": "example",
           "anchor": {
             "repo": "example",

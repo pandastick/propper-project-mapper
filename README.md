@@ -124,7 +124,8 @@ The example bot, its code and its events are synthetic.
   "id": "inbound", "name": "A message reaches the bot", "entry": "receive",
   "lanes": ["door", "brain", "after"],
   "nodes": [{ "id": "mode-gate", "name": "Which mode is on", "kind": "mode", "lane": "door",
-              "decides": "mode", "anchor": { "repo": "bot", "path": "src/modes.js", "symbol": "currentMode" } }],
+              "decides": "mode", "values": ["normal", "planner"],
+              "anchor": { "repo": "bot", "path": "src/modes.js", "symbol": "currentMode" } }],
   "edges": [{ "from": "mode-gate", "to": "planner-hold", "when": { "decision": "mode", "equals": "planner" } },
             { "from": "mode-gate", "to": "fast-path" }]
 }]
@@ -132,6 +133,7 @@ The example bot, its code and its events are synthetic.
 
 - **Node kinds:** `door, hook, router, classifier, mode, model, tool, queue, store, gate, sender`.
 - **Routing rule:** a node with `when` edges follows the ones that match; its plain edges are the else. A node with only plain edges follows all of them.
+- **Values:** `decides` names what a node decides and `values` lists every label it can give. Values a link tests are known already; list the rest here, or Runs reads them as `other`.
 - **Anchors:** `repo` names a root in `.xpm-repos.json` (git-ignored, `{ "bot": "~/code/bot" }`).
 
 ### Events (one JSON line per step)
@@ -142,6 +144,8 @@ The example bot, its code and its events are synthetic.
 
 - Types: `run.started, node.started, node.completed, node.failed, decision, run.completed, run.failed`.
 - `metadata` keeps only `decision, durationMs, status, errorCode, attempt, model, tokens, costUsd, sentAt`. Everything else is dropped on write and on read. **Never put message text or user ids in an event.**
+- A `decision` is a label, not a sentence: each key and each text value is one token of up to 32 letters, digits or `_ . : / -`, with no spaces. Anything else is dropped. On read, a text value the map does not name (in a link's `when.equals`, in the node's `values`, or one of `yes, no, on, off, true, false, other`) is shown as `other`, so the run takes the else link. The writers take the same list up front: `createTracer({ ..., decisions: { mode: ["normal", "planner"] } })`.
+- Use one tracer per pipeline per process: the step counter (`seq`) lives in the tracer.
 - `sentAt` is when the channel received the message (Unix seconds), shown in local time in Runs.
 - Drop-in writers with no dependencies: `writers/xpm-trace.js` (Node, TypeScript) and `writers/xpm_trace.py` (Python). `runIdFor(updateId, salt)` hashes the upstream id.
 - Real events go in `events/<project>/YYYY-MM-DD.jsonl` (or `XPM_EVENTS_DIR`), drafts in `drafts/<project>/` (or `XPM_DRAFTS_DIR`). Both are git-ignored.
@@ -162,14 +166,14 @@ XPM adapts to each product; it never asks a product to change how it deploys. Ea
 
 ```json
 {
-  "compass": {
-    "truth":  { "label": "Live files on agent-host", "repo": "compass" },
-    "mirror": { "label": "GitHub pandastick/compass main", "checkout": "compass-git", "ref": "origin/main", "paths": ["telegram", "miniapp"], "fetch": false },
-    "runsOn": "agent-host",
-    "traces": { "writer": "ASE", "previews": false, "neverPreview": ["privacy turns", "forwards"] },
-    "access": { "label": "Peter's Tailscale login only" },
-    "mapOwner": "ase",
-    "confirmed": { "by": "ase", "at": "2026-11-09", "note": "26 of 26 anchors against live box bytes" }
+  "example-bot": {
+    "truth":  { "label": "Live files on example-host", "repo": "bot" },
+    "mirror": { "label": "GitHub your-org/your-app main", "checkout": "bot-git", "ref": "origin/main", "paths": ["src"], "ignore": ["*.service", "deploy.sh"], "fetch": false },
+    "runsOn": "example-host",
+    "traces": { "writer": "the-owner", "previews": false, "neverPreview": ["private chats"] },
+    "access": { "label": "The owner's Tailscale login only" },
+    "mapOwner": "the-owner",
+    "confirmed": { "by": "the-owner", "at": "2026-11-09", "note": "every anchor checked against the live files" }
   }
 }
 ```
@@ -177,16 +181,19 @@ XPM adapts to each product; it never asks a product to change how it deploys. Ea
 | Setting | Meaning |
 |---|---|
 | `truth.repo` | The repo name the map's anchors use, mapped to a folder in `.xpm-repos.json`. `xpm check` and the anchor status read this folder. |
-| `mirror` | Optional. A git checkout (repo name or absolute path) and a ref to compare the truth with, file by file over `paths` (`prefix` when the mirror keeps them in a subfolder). XPM reports the drift; it never enforces it. `fetch: true` lets XPM run `git fetch` first. |
+| `mirror` | Optional. A git checkout (repo name or absolute path) and a ref to compare the truth with, file by file over `paths` (`prefix` when the mirror keeps them in a subfolder). XPM reports the drift; it never enforces it. `fetch: true` lets XPM run `git fetch` first. `ignore` lists files to leave out on both sides (`"*.service"` matches a file name anywhere, `"deploy/*.sh"` a path). Folders with `backup` in their name are always left out. |
 | `runsOn` | The machine where the truth and the traces are readable. On any other machine Setup says so. |
-| `traces` | Who writes them, whether previews of typed text are on, and what is never previewed. The events folder itself is `XPM_EVENTS_DIR/<project>`. |
-| `access` | A label. The real gate is `XPM_ALLOWED_LOGINS`; with previews on and no gate, Setup flags it (unless `public: true`, for synthetic data). |
+| `traces` | Who writes them, whether previews of typed text are on, and what is never previewed. The events folder itself is `XPM_EVENTS_DIR/<project>`. Previews are shown only when `previews` is `true` here, whatever is on disk. |
+| `access` | A label. The real gate is `XPM_ALLOWED_LOGINS` or `XPM_ALLOWED_NODES`. A project with no gate that is reachable from other devices is flagged in Setup, previews or not (unless `public: true`, for synthetic data). |
 | `mapOwner`, `confirmed` | Who confirms the map against the truth, and when they last did. |
 
 ### Serving it on a tailnet
 
 - `HOST` (default `127.0.0.1`): XPM listens on loopback only. Put `tailscale serve` (or another proxy) in front to reach it from other devices.
-- `XPM_ALLOWED_LOGINS` (comma separated, for example `you@example.com`): behind `tailscale serve`, only these Tailscale logins get in; everyone else, and tagged devices (which send no login), get 403. XPM refuses to start with this set unless `HOST` is loopback, because the login header could otherwise be forged. Set it before turning on previews.
+- `XPM_ALLOWED_HOSTS` (comma separated, for example `example-host.your-tailnet.ts.net`): on loopback XPM answers only to `localhost`, `127.0.0.1`, `[::1]` and the names listed here, so a web page cannot reach it by pointing its own name at your machine. **Behind a proxy, list the name the proxy serves it under, or every request gets 403.**
+- `XPM_ALLOWED_LOGINS` (comma separated, for example `you@example.com`): behind `tailscale serve`, only these Tailscale logins get in; everyone else, and tagged devices (which send no login), get 403.
+- `XPM_ALLOWED_NODES` and `XPM_DENIED_NODES` (comma separated device names, for example `my-laptop,my-phone`): one login can own many devices, and these let in or keep out single ones. XPM takes the caller's tailnet address from the last entry of `X-Forwarded-For` (set by `tailscale serve`) and asks `tailscale whois` which device it is. A denied device gets 403; with an allowed list, only listed devices get in. No address, or no answer from tailscale, also means 403. `XPM_TAILSCALE_BIN` names the binary when it is not on the path.
+- XPM refuses to start with a login or device list unless `HOST` is loopback, because the proxy's headers could otherwise be forged. Set a gate before turning on previews.
 
 ### API
 
@@ -204,7 +211,7 @@ Ideas, not code, from: [AgentFlow Visualization](https://github.com/Elyon0517/Ag
 
 ### The AI-Powered Way (Recommended)
 
-If you use an AI coding agent like **Claude Code**, **Cursor**, or **Windsurf**, just point it at the `agent.md` file in this repo. It contains detailed instructions for the AI to:
+If you use an AI coding agent like **Claude Code**, **Cursor**, or **Windsurf**, just point it at the `agents.md` file in this repo. It contains detailed instructions for the AI to:
 
 1. Scan your project(s) and understand the architecture
 2. Ask you smart questions about what it finds
@@ -214,7 +221,7 @@ This is the fastest way to get set up. The AI does the tedious work of mapping r
 
 ```
 # In Claude Code, just say:
-"Read agent.md and set up PPM for my projects"
+"Read agents.md and set up PPM for my projects"
 ```
 
 ### Manual Setup
@@ -366,7 +373,7 @@ PPM can live anywhere. Two common patterns:
 xpm/
   server.js           Express server, serves manifests as API
   package.json        Dependencies (just express)
-  agent.md            Instructions for AI agents to auto-setup
+  agents.md           Instructions for AI agents to auto-setup
   .env                Port + optional MANIFESTS_DIR (created by you, git-ignored)
   manifests/          One JSON per project
     example-saas.json

@@ -2,17 +2,38 @@
 
 One JSONL line per hop, appended to <dir>/<YYYY-MM-DD>.jsonl.
 Privacy: only ids, decisions and timings. Never pass message text, user ids or tokens.
+A decision is a label: one token of up to 32 letters, digits or _ . : / - (no spaces). Anything else is dropped.
+Use one tracer per pipeline per process: the step counter (seq) lives in the tracer.
 """
 from __future__ import annotations
 
 import fcntl
 import hashlib
 import json
+import math
 import os
+import re
 from datetime import datetime, timezone
 
 KEYS = ("decision", "durationMs", "status", "errorCode", "attempt", "model", "tokens", "costUsd", "sentAt")
 PREVIEW_MAX = 120
+TOKEN = re.compile(r"^[A-Za-z0-9_.:/-]{1,32}$")
+
+
+def clean_decision(raw: object, allowed: dict | None = None) -> dict | None:
+    """Keep booleans, numbers and token strings. With an allowlist, a value it does not name becomes "other"."""
+    if not isinstance(raw, dict):
+        return None
+    out = {}
+    for k, v in raw.items():
+        if not isinstance(k, str) or not TOKEN.match(k):
+            continue
+        if isinstance(v, bool) or (isinstance(v, (int, float)) and math.isfinite(v)):
+            out[k] = v
+        elif isinstance(v, str) and TOKEN.match(v):
+            names = (allowed or {}).get(k)
+            out[k] = "other" if isinstance(names, (list, tuple, set)) and v not in names else v
+    return out or None
 
 
 def run_id_for(upstream_id: object, salt: str) -> str:
@@ -21,10 +42,12 @@ def run_id_for(upstream_id: object, salt: str) -> str:
 
 
 class Tracer:
-    def __init__(self, directory: str, pipeline: str, enabled: bool = True, previews: bool = False):
+    def __init__(self, directory: str, pipeline: str, enabled: bool = True, previews: bool = False, decisions: dict | None = None):
         """previews: opt in to keep what the person typed (cut to 120 characters) in <dir>/previews/,
-        apart from the events. Leave it off unless the owner of the data has said yes."""
+        apart from the events. Leave it off unless the owner of the data has said yes.
+        decisions: optional allowlist, for example {"mode": ["normal", "planner"]}. Other values are written as "other"."""
         self.dir, self.pipeline, self.enabled, self.previews = directory, pipeline, enabled, previews
+        self.decisions = decisions
         self._seq: dict[str, int] = {}
         if enabled:
             os.makedirs(directory, exist_ok=True)
@@ -34,6 +57,12 @@ class Tracer:
             return
         try:
             meta = {k: metadata[k] for k in KEYS if metadata.get(k) is not None}
+            if "decision" in meta:
+                decision = clean_decision(meta["decision"], self.decisions)
+                if decision:
+                    meta["decision"] = decision
+                else:
+                    del meta["decision"]
             seq = self._seq.get(run_id, 0) + 1
             self._seq[run_id] = seq
             if len(self._seq) > 5000:

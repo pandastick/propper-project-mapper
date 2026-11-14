@@ -1,4 +1,4 @@
-/* XPM pipeline view. Tokens from XCMO's brief 26-11-09. Colour only for the five states. One radius. */
+/* XPM pipeline view. Colour only for the five states. One radius. */
 :root {
   --ground: #0a0a0b; --dot: #1d1d21; --bar: #0f0f11; --card: #121214; --band: #0d0d0f; --band-line: #1f1f23;
   --line: #26262a; --card-line: #2e2e33; --strong: #3a3a40; --edge: #4a4a50; --done: #6e6e74;

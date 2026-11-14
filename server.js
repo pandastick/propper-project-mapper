@@ -2,6 +2,8 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const net = require("net");
+const { execFile } = require("child_process");
 
 // Load .env file if it exists (no dependency needed)
 const envPath = path.join(__dirname, ".env");
@@ -16,8 +18,16 @@ const app = express();
 const PORT = process.env.PORT || 3333;
 // Loopback by default: put a proxy (tailscale serve) in front to reach it from elsewhere.
 const HOST = process.env.HOST || "127.0.0.1";
+const list = (v) => (v || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 // Behind tailscale serve: only these Tailscale logins get in (comma separated). Tagged devices send no login, so they are refused.
-const ALLOWED_LOGINS = (process.env.XPM_ALLOWED_LOGINS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+const ALLOWED_LOGINS = list(process.env.XPM_ALLOWED_LOGINS);
+// One login can own many devices. These lists let in, or keep out, single devices by their Tailscale name.
+const nodeLabel = (name) => String(name || "").toLowerCase().split(".")[0];
+const ALLOWED_NODES = list(process.env.XPM_ALLOWED_NODES).map(nodeLabel);
+const DENIED_NODES = list(process.env.XPM_DENIED_NODES).map(nodeLabel);
+// Host names a browser may use for this server besides localhost: the name the proxy serves it under.
+const ALLOWED_HOSTS = list(process.env.XPM_ALLOWED_HOSTS);
+const TAILSCALE_BIN = process.env.XPM_TAILSCALE_BIN || "tailscale";
 const LOOPBACK = ["127.0.0.1", "::1", "localhost"].includes(HOST);
 // One folder or several, separated like PATH (":" on macOS and Linux). The first folder that has a project wins.
 const MANIFESTS_DIRS = (process.env.MANIFESTS_DIR || path.join(__dirname, "manifests")).split(path.delimiter).filter(Boolean);
@@ -40,16 +50,64 @@ const EXAMPLES = path.join(__dirname, "examples");
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,80}$/i;
 const xpm = require("./lib/pipeline");
 
-// The login header is only trustworthy when nothing but the local proxy can reach this server.
-if (ALLOWED_LOGINS.length && !LOOPBACK) {
-  console.error("  Refusing to start: XPM_ALLOWED_LOGINS needs HOST on loopback, or the login header can be forged.");
+// The proxy's headers are only trustworthy when nothing but the local proxy can reach this server.
+const GATED = ALLOWED_LOGINS.length + ALLOWED_NODES.length + DENIED_NODES.length > 0;
+if (GATED && !LOOPBACK) {
+  console.error("  Refusing to start: XPM_ALLOWED_LOGINS, XPM_ALLOWED_NODES and XPM_DENIED_NODES need HOST on loopback, or the proxy's headers can be forged.");
   process.exit(1);
+}
+const refuse = (res, why) => res.status(403).type("text/plain").send(`XPM: ${why}`);
+
+// On loopback, a web page that points its own name at 127.0.0.1 must not be able to read the API (DNS rebinding).
+if (LOOPBACK) {
+  const names = new Set(["localhost", "127.0.0.1", "[::1]", ...ALLOWED_HOSTS]);
+  app.use((req, res, next) => {
+    const name = String(req.headers.host || "").toLowerCase().replace(/:\d+$/, "");
+    if (names.has(name)) return next();
+    refuse(res, "this host name is not allowed. Add it to XPM_ALLOWED_HOSTS.");
+  });
 }
 if (ALLOWED_LOGINS.length) {
   app.use((req, res, next) => {
     const login = String(req.get("Tailscale-User-Login") || "").toLowerCase();
     if (ALLOWED_LOGINS.includes(login)) return next();
-    res.status(403).type("text/plain").send("XPM: this Tailscale login is not allowed.");
+    refuse(res, "this Tailscale login is not allowed.");
+  });
+}
+
+// Which device is calling: the proxy puts the caller's tailnet address last in X-Forwarded-For, and tailscale names it.
+const whoCache = new Map();
+function nodeNames(ip) {
+  const hit = whoCache.get(ip);
+  if (hit && Date.now() - hit.at < hit.ttl) return hit.names;
+  const entry = { at: Date.now(), ttl: 60000 };
+  entry.names = new Promise((resolve) => {
+    execFile(TAILSCALE_BIN, ["whois", "--json", ip], { timeout: 3000, maxBuffer: 1 << 20 }, (err, stdout) => {
+      let names = null;
+      try {
+        const node = err ? null : JSON.parse(stdout).Node;
+        if (node) names = [node.Name, node.ComputedName, node.Hostinfo && node.Hostinfo.Hostname].map(nodeLabel).filter(Boolean);
+      } catch {
+        names = null;
+      }
+      if (!names || !names.length) { names = null; entry.ttl = 5000; } // ask again soon after a failure
+      resolve(names);
+    });
+  });
+  if (whoCache.size >= 500) whoCache.delete(whoCache.keys().next().value);
+  whoCache.set(ip, entry);
+  return entry.names;
+}
+if (ALLOWED_NODES.length || DENIED_NODES.length) {
+  app.use(async (req, res, next) => {
+    const ip = String(req.get("X-Forwarded-For") || "").split(",").pop().trim();
+    // No answer means no entry: a device nobody can name is refused.
+    if (!net.isIP(ip)) return refuse(res, "the proxy did not say which device is calling.");
+    const names = await nodeNames(ip);
+    if (!names) return refuse(res, "tailscale could not name this device.");
+    if (names.some((n) => DENIED_NODES.includes(n))) return refuse(res, "this device is not allowed.");
+    if (ALLOWED_NODES.length && !names.some((n) => ALLOWED_NODES.includes(n))) return refuse(res, "this device is not allowed.");
+    next();
   });
 }
 
@@ -152,7 +210,7 @@ function mirrorFor(project, profile, repos) {
   let data;
   if (!checkout || !truthRoot) data = { error: `${!checkout ? `mirror checkout ${m.checkout}` : `truth repo ${profile.truth?.repo}`} is not in the repos file on this machine` };
   else {
-    try { data = xpm.compareMirror({ truthRoot, checkout, ref: m.ref, paths: m.paths, prefix: m.prefix, fetch: !!m.fetch }); }
+    try { data = xpm.compareMirror({ truthRoot, checkout, ref: m.ref, paths: m.paths, prefix: m.prefix, fetch: !!m.fetch, ignore: m.ignore }); }
     catch (err) { data = { error: `compare failed: ${String(err.message).split("\n")[0].slice(0, 160)}` }; }
   }
   mirrorCache.set(project, { at: Date.now(), data });
@@ -168,7 +226,8 @@ app.get("/api/project/:id/source", (req, res) => {
   const mirror = errors.length ? null : mirrorFor(req.params.id, profile, repos);
   const facts = xpm.setupFacts(errors.length ? null : profile, {
     repos, mirror, hostname: os.hostname(), eventsDir: eventsDirFor(req.params.id),
-    allowedLogins: ALLOWED_LOGINS.length, loopback: LOOPBACK,
+    allowedLogins: ALLOWED_LOGINS.length, allowedNodes: ALLOWED_NODES.length, deniedNodes: DENIED_NODES.length, allowedHosts: ALLOWED_HOSTS.length,
+    loopback: LOOPBACK, proxied: ["x-forwarded-for", "x-forwarded-host", "forwarded", "tailscale-user-login"].some((h) => req.headers[h] !== undefined),
   });
   const cap = (list) => (list || []).slice(0, 100);
   res.json({
@@ -184,18 +243,24 @@ app.get("/api/project/:id/pipeline/:pid", (req, res) => {
   if (!found) return;
   const { pipeline } = found;
   const errors = xpm.validatePipeline(pipeline);
-  const anchors = errors.length ? [] : xpm.checkAnchors(pipeline, reposFor(req.params.id));
+  // A map that does not hold together is answered with the reasons, never laid out or lit up.
+  if (errors.length) {
+    return res.json({ pipeline, check: { errors, anchors: [] }, overlay: null, runs: [], rejectedEvents: 0, scrubbedDecisions: 0, generatedAt: new Date().toISOString() });
+  }
+  const anchors = xpm.checkAnchors(pipeline, reposFor(req.params.id));
   const dir = eventsDirFor(req.params.id);
-  const { events, rejected } = xpm.loadEvents(dir, pipeline.id);
+  const { events, rejected, scrubbed } = xpm.loadEvents(dir, pipeline.id, { pipeline });
   const last50 = xpm.foldRuns(events).slice(0, 50);
-  // What the person typed is attached here, for the runs list only. It never enters simulate or a spec.
-  const previews = xpm.loadPreviews(dir);
+  // What the person typed is attached here, for the runs list only, and only when the project's profile says previews are on.
+  // It never enters simulate or a spec.
+  const previews = profileFor(req.params.id)?.traces?.previews === true ? xpm.loadPreviews(dir) : new Map();
   res.json({
     pipeline,
     check: { errors, anchors },
     overlay: xpm.overlay(pipeline, last50),
     runs: last50.map((r) => ({ ...r, preview: previews.get(r.runId) ?? null })),
     rejectedEvents: rejected.length,
+    scrubbedDecisions: scrubbed,
     generatedAt: new Date().toISOString(),
   });
 });
@@ -225,7 +290,10 @@ app.post("/api/project/:id/pipeline/:pid/simulate", (req, res) => {
   const found = findPipeline(req, res);
   if (!found) return;
   const draft = req.body && typeof req.body === "object" ? req.body : {};
-  const runs = xpm.foldRuns(xpm.loadEvents(eventsDirFor(req.params.id), found.pipeline.id).events);
+  // Check the map and the draft before any run is read: a bad one is refused with the reasons.
+  const bad = [...xpm.validatePipeline(found.pipeline), ...xpm.validateDraft(draft)];
+  if (bad.length) return res.status(400).json({ ok: false, errors: bad });
+  const runs = xpm.foldRuns(xpm.loadEvents(eventsDirFor(req.params.id), found.pipeline.id, { pipeline: found.pipeline }).events);
   const result = xpm.simulate(found.pipeline, draft, runs);
   if (!result.ok) return res.status(400).json(result);
   // Only the runs that change route travel back; that is all the result table needs.
@@ -255,6 +323,7 @@ app.post("/api/regenerate/:id", (req, res) => {
 
 app.listen(PORT, HOST, () => {
   const count = manifestFiles().length;
-  console.log(`\n  XPM (Xcali Project Mapper) running at http://${HOST}:${PORT}${ALLOWED_LOGINS.length ? ` (Tailscale logins: ${ALLOWED_LOGINS.length})` : ""}`);
+  const gates = [ALLOWED_LOGINS.length ? `Tailscale logins: ${ALLOWED_LOGINS.length}` : "", ALLOWED_NODES.length ? `devices allowed: ${ALLOWED_NODES.length}` : "", DENIED_NODES.length ? `devices refused: ${DENIED_NODES.length}` : ""].filter(Boolean).join(", ");
+  console.log(`\n  XPM (Xcali Project Mapper) running at http://${HOST}:${PORT}${gates ? ` (${gates})` : ""}`);
   console.log(`  Manifests: ${MANIFESTS_DIRS.join(", ")} (${count} projects)\n`);
 });

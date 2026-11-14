@@ -16,3 +16,9 @@ manifests/*.json
 /.xpm-repos.json
 /.xpm-projects.json
 __pycache__/
+
+# Local list of names that must never appear in this public repo (one pattern per line). Read by tests/public-names.test.js.
+/.private-names
+# Local notes about the private manifests store, and fleet metadata.
+/PROJECT-MAPPER-GUIDE.md
+/.project.yml
