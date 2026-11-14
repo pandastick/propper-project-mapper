@@ -246,14 +246,16 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
   // What each step is, also for the steps folded inside a lane card.
   const famOf = new Map([...(pipeline()?.nodes || []), ...p.nodes].map((n) => [n.id, FAMILY[n.kind] || ""]));
   const heads = new Set();
-  let paths = "", chips = "";
+  let paths = "", top = "", chips = "";
   for (const e of p.edges || []) {
     const a = L.xy.get(e.from), b = L.xy.get(e.to);
     if (!a || !b || e.ghostHop) continue;
     const g = L.routes.get(`${e.from}->${e.to}`) || edgePath(a, b);
     const s = edgeLook(e);
     heads.add(s.stroke);
-    paths += `<path d="${g.d}" stroke="${s.stroke}" stroke-width="${s.width}"${s.dash ? ' stroke-dasharray="4 3"' : ""} marker-end="url(#ah-${s.stroke.replace(/[^a-z0-9]/gi, "")})"></path>`;
+    const line = `<path d="${g.d}" stroke="${s.stroke}" stroke-width="${s.width}"${s.dash ? ' stroke-dasharray="4 3"' : ""} marker-end="url(#ah-${s.stroke.replace(/[^a-z0-9]/gi, "")})"></path>`;
+    // Lit lines go last so no other line is drawn over them.
+    if (s.chip === "on") top += line; else paths += line;
     // The step's own question is on its card, so its lines only carry the answer.
     const full = e.when ? `${e.when.decision} = ${e.when.equals}` : "";
     const label = e.when ? (byId.get(e.from)?.decides === e.when.decision ? String(e.when.equals) : full) : deciding.has(e.from) ? "else" : "";
@@ -264,8 +266,9 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
     const count = `${b.ids.length} ${b.ids.length === 1 ? "step" : "steps"}${nNew ? `, ${nNew} new` : ""}`;
     // Lanes are numbered in reading order, which matters once they wrap into rows.
     const no = (p.lanes || []).indexOf(b.name) + 1;
-    const title = `${no ? `<span class="no">${no}</span>` : ""}<b>${esc(b.name.toUpperCase())}</b> <span class="dim">· ${count}</span>`;
-    return `<div class="band" style="left:${b.left}px;top:${b.top}px;width:${b.width}px;height:${b.height}px"></div>${S.view === "map" && S.lens === "overview" ? `<button type="button" class="band-h fold" style="left:${b.left + 8}px;top:${b.top + 4}px" data-act="fold-lane" data-arg="${esc(b.name)}" aria-expanded="true" aria-label="Fold the ${esc(b.name)} lane">${title}<span class="cue">${SVG.up}fold</span></button>` : `<span class="band-h" style="left:${b.left + 16}px;top:${b.top + 12}px">${title}</span>`}`;
+    const what = p.laneNotes?.[b.name];
+    const title = `${no ? `<span class="no">${no}</span>` : ""}<b>${esc(b.name.toUpperCase())}</b> <span class="dim">· ${count}${what ? ` · ${esc(what)}` : ""}</span>`;
+    return `<div class="band" style="left:${b.left}px;top:${b.top}px;width:${b.width}px;height:${b.height}px"></div>${S.view === "map" && S.lens === "overview" ? `<button type="button" class="band-h fold" style="left:${b.left + 8}px;top:${b.top + 4}px" data-act="fold-lane" data-arg="${esc(b.name)}" aria-expanded="true" aria-label="Fold the ${esc(b.name)} lane${what ? `: ${esc(what)}` : ""}">${title}<span class="cue">${SVG.up}fold</span></button>` : `<span class="band-h" style="left:${b.left + 16}px;top:${b.top + 12}px;max-width:${b.width - 32}px">${title}</span>`}`;
   }).join("");
   const cards = [...L.xy.keys()].map((id) => {
     const n = byId.get(id) || { id, name: id, kind: "unknown" };
@@ -273,20 +276,20 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
     const { x, y } = L.xy.get(id);
     const fams = n.members ? n.members.map((m) => famOf.get(m)) : [FAMILY[v.kind || n.kind] || ""];
     // The key at the bottom can single out one family: the rest steps back.
-    const away = S.kind && !fams.includes(S.kind) ? " faded" : "";
+    const away = S.kind && !fams.includes(S.kind) ? " faded" : v.far ? " far" : "";
     const mix = n.members ? `<span class="mix" aria-hidden="true">${fams.map((f) => `<i class="${f ? `f-${f}` : ""}${S.kind && f !== S.kind ? " off" : ""}"></i>`).join("")}</span>` : "";
-    return `<button type="button" class="node${!n.members && fams[0] ? ` f-${fams[0]}` : ""} ${v.cls || ""}${away}" style="left:${x}px;top:${y}px" data-act="${v.act || "node"}" data-arg="${esc(v.arg ?? id)}" aria-label="${esc(v.aria)}"${v.expanded != null ? ` aria-expanded="${v.expanded}"` : ""}>
+    return `<button type="button" class="node${!n.members && fams[0] ? ` f-${fams[0]}` : ""}${n.members ? " lane" : ""} ${v.cls || ""}${away}" style="left:${x}px;top:${y}px" data-act="${v.act || "node"}" data-arg="${esc(v.arg ?? id)}" aria-label="${esc(v.aria)}"${v.expanded != null ? ` aria-expanded="${v.expanded}"` : ""}>
       <span class="port out" aria-hidden="true"></span>
       ${v.live ? '<span class="live-dot" aria-hidden="true"></span>' : ""}
       <span class="k">${icon(v.kind || n.kind)}<span>${esc(v.kindLabel ?? (v.kind || n.kind))}</span><span class="flag">${v.cue || ""}${esc(v.flag || "")}</span></span>
-      <span class="nm">${esc(n.name || id)}</span>
-      <span class="st">${esc(v.stat || "")}</span>${mix}
+      <span class="nm">${esc(n.name || id)}</span>${v.note ? `<span class="what">${esc(v.note)}</span>` : ""}
+      <span class="st">${v.statHtml || esc(v.stat || "")}</span>${mix}
     </button>`;
   }).join("");
   const z = S.zoom || 1;
   return `<div class="scroll" data-keep="canvas"><div class="sizer" style="width:${L.width * z}px;height:${L.height * z}px"><div class="stage" style="width:${L.width}px;height:${L.height}px;transform:scale(${z})">
     ${bands}
-    <svg width="${L.width}" height="${L.height}" viewBox="0 0 ${L.width} ${L.height}" fill="none" aria-hidden="true" style="position:absolute;left:0;top:0"><defs>${[...heads].map((c) => `<marker id="ah-${c.replace(/[^a-z0-9]/gi, "")}" viewBox="0 0 9 8" markerWidth="9" markerHeight="8" refX="8.5" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0.5L9 4L0 7.5z" fill="${c}"></path></marker>`).join("")}</defs>${paths}${extras}</svg>
+    <svg width="${L.width}" height="${L.height}" viewBox="0 0 ${L.width} ${L.height}" fill="none" aria-hidden="true" style="position:absolute;left:0;top:0"><defs>${[...heads].map((c) => `<marker id="ah-${c.replace(/[^a-z0-9]/gi, "")}" viewBox="0 0 9 8" markerWidth="9" markerHeight="8" refX="8.5" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0.5L9 4L0 7.5z" fill="${c}"></path></marker>`).join("")}</defs>${paths}${top}${extras}</svg>
     ${chips}${cards}${overlayHtml}
   </div></div></div>`;
 }
@@ -339,13 +342,20 @@ function viewMap() {
     const st = n.members.map((id) => S.data.overlay.nodes[id] || {});
     const failures = st.reduce((a, x) => a + (x.failures || 0), 0);
     const into = Math.max(0, ...st.map((x) => x.hits || 0));
-    const v = { act: "open-lane", arg: n.lane, kindLabel: "lane", flag: "open", cue: SVG.open, cls: "", stat: `${n.members.length} steps${into ? ` · ${into} hits` : ""}`, expanded: false };
-    if (failures) { v.cls = "failing"; v.flag = `${failures} failed`; states.add("failing"); }
+    const v = { act: "open-lane", arg: n.lane, kindLabel: `${n.members.length} steps`, flag: "open", cue: SVG.open, cls: "", stat: into ? `${into} hits` : "", expanded: false, note: full.laneNotes?.[n.lane] };
+    // The count of failures sits beside the hits, so the top row always reads "N steps ... open".
+    if (failures) { v.cls = "failing"; v.statHtml = `${v.stat ? `${esc(v.stat)} · ` : ""}<span class="red">${failures} failed</span>`; states.add("failing"); }
     else if (st.every((x) => x.state === "cold")) { v.cls = "cold"; states.add("cold"); }
-    v.aria = `${n.name} lane, ${v.stat}${failures ? `, ${failures} failed` : ""}, tap to open`;
+    v.aria = `${n.name} lane, ${v.note ? `${v.note}, ` : ""}${v.kindLabel}${v.stat ? `, ${v.stat}` : ""}${failures ? `, ${failures} failed` : ""}, tap to open`;
     return v;
   };
-  const body = canvas(p, L, lookLane, () => ({ stroke: "#4a4a50", width: 1.2 }));
+  // A tapped step lights its own lines and the steps they reach; the rest steps back.
+  const pick = S.panelNode && L.xy.has(S.panelNode) ? S.panelNode : null;
+  const near = new Set(pick ? [pick] : []);
+  for (const e of pick ? p.edges || [] : []) { if (e.from === pick) near.add(e.to); if (e.to === pick) near.add(e.from); }
+  const lookPick = (n) => { const v = lookLane(n); if (pick && !near.has(n.id)) v.far = true; return v; };
+  const edgeLook = (e) => (!pick ? { stroke: "#4a4a50", width: 1.2 } : e.from === pick || e.to === pick ? { stroke: "#e7e7e9", width: 1.6, chip: "on" } : { stroke: "#26262a", width: 1.2, chip: "faded" });
+  const body = canvas(p, L, lookPick, edgeLook);
   const ghosts = S.data.overlay.ghosts || [];
   const note = `hits and median time · last ${S.data.runs.length} runs · updated ${agoWords(S.fetchedAt)}`;
   const strip = setupStrips() + (ghosts.length ? `<div class="strip"><div class="row"><span class="sq-ghost"></span><span>${ghosts.length} ${ghosts.length === 1 ? "step" : "steps"} ran that the map does not know: ${ghosts.map((g) => `<b>${esc(g.id)}</b> (${g.hits} runs)`).join(", ")}</span></div><button type="button" class="btn" data-act="view" data-arg="runs" data-filter="ghost">See them in Runs</button></div>` : "");
@@ -370,8 +380,17 @@ function nodePanel(id) {
     ["repo", esc(a.repo || "")], ["file", esc(a.path || "")], ["function", esc(a.symbol || "")], ["code check", status],
     ["decides", esc(n.decides || "")], ["last 50 runs", `${s.hits || 0} hits${s.medianMs != null ? `, median ${ms(s.medianMs)}` : ""}${s.failures ? `, <span class="red">${s.failures} failed</span>` : ""}`],
   ].filter(([, v]) => v);
+  const name = (x) => p.nodes.find((y) => y.id === x)?.name || x;
+  const answer = (e, from) => (e.when ? (from.decides === e.when.decision ? String(e.when.equals) : `${e.when.decision} = ${e.when.equals}`) : (p.edges || []).some((x) => x.from === from.id && x.when) ? "else" : "");
+  const link = (e, other, from) => { const a = answer(e, from); return `<li><button type="button" class="hop" data-act="goto" data-arg="${esc(other)}"><i class="fd f-${FAMILY[p.nodes.find((y) => y.id === other)?.kind] || ""}"></i><span>${esc(name(other))}</span>${a ? `<span class="chip-in">${esc(a)}</span>` : ""}</button></li>`; };
+  const ins = (p.edges || []).filter((e) => e.to === id), outs = (p.edges || []).filter((e) => e.from === id);
+  const hops = (title, list, html) => (list.length ? `<section class="hops"><h3>${title}</h3><ul>${html}</ul></section>` : "");
   return `<aside class="side" aria-label="Step details"><div class="side-h"><div class="top"><span class="title"><b>${esc(n.name)}</b><span>${esc(n.id)}</span></span><button type="button" class="icon-btn" aria-label="Close details" data-act="close-panel">${SVG.close}</button></div></div>
-    <dl class="detail">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></aside>`;
+    <div class="side-body">${n.description ? `<p class="about">${esc(n.description)}</p>` : ""}
+    ${hops("comes from", ins, ins.map((e) => link(e, e.from, p.nodes.find((y) => y.id === e.from) || {})).join(""))}
+    ${hops("goes to", outs, outs.map((e) => link(e, e.to, n)).join(""))}
+    ${!outs.length ? '<p class="muted ends">The path ends here.</p>' : ""}
+    <dl class="detail">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div></aside>`;
 }
 
 function viewRuns() {
@@ -762,6 +781,7 @@ document.addEventListener("click", (ev) => {
     case "set-pipeline": S.menu = null; S.pipelineId = arg; resetPipeline(); loadPipeline(); return;
     case "view": S.view = arg; S.userZoomed = false; if (el.dataset.filter) S.filter = el.dataset.filter; if (arg !== "map") S.panelNode = null; syncUrl(); break;
     case "node": if (S.view === "map") S.panelNode = S.panelNode === arg ? null : arg; break;
+    case "goto": { S.panelNode = arg; const lane = pipeline()?.nodes.find((n) => n.id === arg)?.lane; if (lane && S.lens === "overview" && !S.openLanes.has(lane)) { S.openLanes.add(lane); S.userZoomed = false; } break; }
     case "close-panel": S.panelNode = null; break;
     case "toggle-files": S.showFiles = !S.showFiles; break;
     case "setup-refresh": S.source = null; render(); loadSource(true); return;

@@ -18,11 +18,17 @@
         "brain",
         "after"
       ],
+      "laneNotes": {
+        "door": "Takes the update, drops repeats.",
+        "brain": "Picks who answers, then answers.",
+        "after": "Sends the reply."
+      },
       "entry": "receive",
       "nodes": [
         {
           "id": "receive",
           "name": "Receive update",
+          "description": "Takes each update from the chat platform and hands it on.",
           "kind": "door",
           "lane": "door",
           "owner": "example",
@@ -35,6 +41,7 @@
         {
           "id": "dedupe",
           "name": "Drop duplicates",
+          "description": "Drops an update the bot has already seen, so a retry never answers twice.",
           "kind": "gate",
           "lane": "door",
           "decides": "duplicate",
@@ -48,6 +55,7 @@
         {
           "id": "mode-gate",
           "name": "Which mode is on",
+          "description": "Reads which mode the person has switched on and sends the message that way.",
           "kind": "mode",
           "lane": "door",
           "decides": "mode",
@@ -62,6 +70,7 @@
         {
           "id": "planner-hold",
           "name": "Hold for planner",
+          "description": "While planner mode is on, the message waits here for the next planning round.",
           "kind": "queue",
           "lane": "brain",
           "owner": "example",
@@ -74,6 +83,7 @@
         {
           "id": "private-model",
           "name": "Private model",
+          "description": "Answers with a model that keeps the text off the main agent.",
           "kind": "model",
           "lane": "brain",
           "owner": "example",
@@ -86,6 +96,7 @@
         {
           "id": "fast-path",
           "name": "Command or chat",
+          "description": "A slash command takes the short way; everything else goes to the agent.",
           "kind": "router",
           "lane": "brain",
           "decides": "fast",
@@ -99,6 +110,7 @@
         {
           "id": "command-reply",
           "name": "Run the command",
+          "description": "Runs the command and writes its answer. No model.",
           "kind": "tool",
           "lane": "brain",
           "owner": "example",
@@ -111,6 +123,7 @@
         {
           "id": "agent",
           "name": "Agent",
+          "description": "The main agent reads the message and writes the reply.",
           "kind": "model",
           "lane": "brain",
           "owner": "example",
@@ -123,6 +136,7 @@
         {
           "id": "reply",
           "name": "Send reply",
+          "description": "Sends the reply back to the chat.",
           "kind": "sender",
           "lane": "after",
           "owner": "example",

@@ -98,7 +98,7 @@ A pipeline is the path a message takes through a product: which step receives it
 
 Open `http://localhost:3333/pipeline.html` (or the **Pipeline** button on a project that has pipelines). Three views, one segmented toggle:
 
-- **Map:** the declared pipeline in lanes, with hits and median time over the last 50 runs. Tap a step for its file, function and code check.
+- **Map:** the declared pipeline in lanes, with hits and median time over the last 50 runs. Tap a step and its own lines light up while the rest steps back; the panel says what the step does, where a message comes from, where it goes next (tap one to follow it), and its file, function and code check.
 - **Runs:** the last 50 runs, newest first, each with what was typed, when the channel received it and the run id. Pick one to light its path, step through it, and see ghost steps the map does not know. `?run=<id>` links straight to a run.
 - **Draft:** a change drawn in dashed blue, replayed against the recorded runs, with the verdict, the runs that change route, and **Export spec**. A ghost step in Runs can become a draft in one tap.
 
@@ -128,7 +128,9 @@ The example bot, its code and its events are synthetic.
 "pipelines": [{
   "id": "inbound", "name": "A message reaches the bot", "entry": "receive",
   "lanes": ["door", "brain", "after"],
+  "laneNotes": { "door": "Takes the update, drops repeats." },
   "nodes": [{ "id": "mode-gate", "name": "Which mode is on", "kind": "mode", "lane": "door",
+              "description": "Reads which mode the chat is in.",
               "decides": "mode", "values": ["normal", "planner"],
               "anchor": { "repo": "bot", "path": "src/modes.js", "symbol": "currentMode" } }],
   "edges": [{ "from": "mode-gate", "to": "planner-hold", "when": { "decision": "mode", "equals": "planner" } },
@@ -138,6 +140,7 @@ The example bot, its code and its events are synthetic.
 
 - **Node kinds:** `door, hook, router, classifier, mode, model, tool, queue, store, gate, sender`.
 - **Routing rule:** a node with `when` edges follows the ones that match; its plain edges are the else. A node with only plain edges follows all of them.
+- **Words for the reader:** a node's `description` is the first thing its panel shows. `laneNotes` gives a lane one line (up to 80 characters; about 36 fit on a folded lane card) shown in the lane header and on its Overview card. Both are optional.
 - **Values:** `decides` names what a node decides and `values` lists every label it can give. Values a link tests are known already; list the rest here, or Runs reads them as `other`.
 - **Anchors:** `repo` names a root in `.xpm-repos.json` (git-ignored, `{ "bot": "~/code/bot" }`).
 

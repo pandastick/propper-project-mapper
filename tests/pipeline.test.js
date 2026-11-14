@@ -26,6 +26,16 @@ test("schema catches broken edges, kinds and conditions", () => {
   assert.match(errors, /when needs decision and equals/);
 });
 
+test("lane notes: one short line per known lane, anything else is refused", () => {
+  const base = { id: "x", lanes: ["in", "out"], nodes: [{ id: "a", kind: "door", lane: "in" }] };
+  assert.deepEqual(xpm.validatePipeline({ ...base, laneNotes: { in: "Takes the message." } }), []);
+  assert.ok(pipeline.laneNotes && Object.keys(pipeline.laneNotes).every((l) => pipeline.lanes.includes(l)));
+  for (const laneNotes of [["in"], "text", { nowhere: "x" }, { in: "" }, { in: 5 }, { in: "x".repeat(81) }, { in: "two\nlines" }]) {
+    assert.ok(xpm.validatePipeline({ ...base, laneNotes }).length > 0, JSON.stringify(laneNotes));
+  }
+  assert.match(xpm.validatePipeline({ id: "x", nodes: [{ id: "a", kind: "door" }], laneNotes: { in: "x" } }).join(), /unknown lane in/);
+});
+
 test("events: content and unknown keys never survive validation", () => {
   const r = xpm.validateEvent({ runId: "r1", ts: "2026-11-09T00:00:00Z", type: "node.completed", node: "agent", text: "hello", metadata: { durationMs: 5, input: "secret message", decision: { mode: "x", blob: { nested: 1 } } } });
   assert.equal(r.ok, true);
