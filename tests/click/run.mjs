@@ -67,6 +67,25 @@ try {
   check("the menu closes on an outside tap", (await count(".menu")) === 0);
   await shot("map-1440");
 
+  // ---------- colour says what a step is for ----------
+  const fam = (id) => b.ev(`[...document.querySelector('.node[data-arg="${id}"]').classList].find((c) => c.startsWith("f-"))`);
+  check("every step card carries its family colour", (await count('.node[class*=" f-"]')) === 9);
+  check("a door is in / out, a gate a decision, a model AI, a tool an action, a queue storage", JSON.stringify([await fam("receive"), await fam("dedupe"), await fam("agent"), await fam("command-reply"), await fam("planner-hold")]) === '["f-io","f-decide","f-ai","f-act","f-keep"]');
+  check("the stripe and the kind word take the colour, and five families give five colours", (await b.ev(`new Set(["receive", "dedupe", "agent", "command-reply", "planner-hold"].map((id) => { const n = document.querySelector('.node[data-arg="' + id + '"]'); const c = getComputedStyle(n, "::before").backgroundColor; return c === getComputedStyle(n.querySelector(".k")).color ? c : "differs"; })).size`)) === 5);
+  check("the key names the five families on this map", (await count('.key [data-act="kind"]')) === 5 && (await b.text(".key")).replace(/\s+/g, " ").includes("In / out Decision AI Action Storage"));
+  await b.click(q('[data-act="kind"][data-arg="ai"]'));
+  check("tapping AI in the key fades the other seven steps", (await count(".node.faded")) === 7 && (await count('.node.f-ai:not(.faded)')) === 2 && (await b.ev(`${q('[data-act="kind"][data-arg="ai"]')}.getAttribute("aria-pressed")`)) === "true");
+  await shot("map-one-family");
+  await b.click(q('[data-act="kind"][data-arg="ai"]'));
+  check("tapping it again brings every step back", (await count(".node.faded")) === 0);
+  check("every line ends in an arrowhead that is defined", await b.ev(`(() => { const svg = document.querySelector(".stage svg"); const lines = [...svg.querySelectorAll(":scope > path")]; return lines.length >= 9 && lines.every((l) => { const m = /#([^)"]+)/.exec(l.getAttribute("marker-end") || ""); return m && svg.querySelector("marker#" + m[1]); }); })()`));
+  check("a line out of a decision reads only the answer, the full rule is in its title", await b.ev(`[...document.querySelectorAll(".chip")].some((c) => c.innerText.trim() === "no" && c.title === "duplicate = no")`));
+  check("the first step says start and a step nothing follows says end", (await b.text('.node[data-arg="receive"] .flag')).trim() === "start" && (await b.text('.node[data-arg="reply"] .flag')).trim() === "end");
+  check("the lanes are numbered in reading order", (await b.ev(`[...document.querySelectorAll(".band-h .no")].map((x) => x.innerText).join("")`)) === "123");
+  await b.go(page("noname-bot", "map"));
+  check('a project with no run on record does not say "0 hits"', (await count(".node")) === 9 && !(await b.text(".stage")).includes("hits"));
+  await b.go(page("example-bot", "map"));
+
   // ---------- Runs ----------
   await b.click(q('[data-act="view"][data-arg="runs"][data-filter="ghost"]'), 300);
   check("the ghost strip goes to Runs with the Ghost filter", (await b.text('[data-act="filter"][aria-pressed="true"]')).startsWith("Ghost"));
@@ -142,6 +161,8 @@ try {
   await b.go(page("example-bot", "map"));
   check("phone: one picker for project and pipeline", (await count(".pick-btn")) === 1 && (await b.text(".pick-btn")).includes("example-bot · inbound"));
   check("phone: the anchor count is in the footer, not the top bar", !(await b.text("header")).includes("anchors") && (await b.text("footer")).includes("9 of 9 anchors ok"));
+  check("phone: a folded lane card shows the colours of the steps inside", (await count(".node .mix")) >= 2 && (await count('.node .mix i[class^="f-"]')) >= 3);
+  check("phone: the whole colour key fits the screen", await b.ev(`(() => { const k = document.querySelector(".key"); return k.scrollWidth <= k.clientWidth && k.getBoundingClientRect().right <= innerWidth; })()`));
   check("a folded lane card shows a chevron and the word", (await count(".node .flag svg")) >= 1 && (await b.text(".node .flag")).includes("open"));
   await b.click(q('[data-act="open-lane"]'), 300);
   check("an open lane has a fold control", (await count('.band-h.fold[aria-expanded="true"] .cue svg')) >= 1);
