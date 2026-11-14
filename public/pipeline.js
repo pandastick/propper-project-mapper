@@ -3,7 +3,8 @@
 // no touchmove handler anywhere (a prevented touchmove cancels Pencil taps).
 "use strict";
 
-const COL = 248, NODE_W = 144, NODE_H = 80, ROW = 160, LEFT = 40, TOP = 88;
+// Where cards and lines go lives in pipeline-layout.js, so Node can test it without a browser.
+const { NODE_W, NODE_H, foldLanes, layout: layoutAt, edgePath } = window.XPMLayout;
 const ICONS = {
   door: "M9 2.5h4v11H9 M2 8h8 M7.5 5.5L10 8l-2.5 2.5",
   gate: "M2 3h12L9.5 8.5V13l-3-1.5v-3z",
@@ -27,35 +28,11 @@ const S = {
   filter: "all", picked: null, step: null, railOpen: true, changedIds: null,
   drafts: [], draft: null, draftSavedAt: null, result: null, resultOpen: false, replaying: false, replayError: null,
   zoom: null, userZoomed: false,
-  lens: null, openLanes: new Set(),
-  source: null, showFiles: false,   // Setup: where the code lives and how XPM is set up for this project   // Map lens: "overview" folds lanes into one card each, "all" shows every step
+  lens: null, openLanes: new Set(),   // Map lens: "overview" folds lanes into one card each, "all" shows every step
+  source: null, showFiles: false,     // Setup: where the code lives and how XPM is set up for this project
+  req: 0,                             // goes up with every project or pipeline switch; an answer to an older request is ignored
+  draftClosed: false, scrollPicked: false,
 };
-
-// The lens: fold every lane that is not open into one card, so a long pipeline reads at a glance.
-function foldLanes(p, open) {
-  const fold = new Set((p.lanes || []).filter((l) => !open.has(l) && p.nodes.filter((n) => n.lane === l).length > 1));
-  if (!fold.size) return p;
-  const to = new Map(), nodes = [], cards = new Map();
-  for (const n of p.nodes) {
-    if (!fold.has(n.lane)) { to.set(n.id, n.id); nodes.push(n); continue; }
-    const id = `lane:${n.lane}`;
-    to.set(n.id, id);
-    if (!cards.has(id)) { const c = { id, name: n.lane, kind: "lane", lane: n.lane, members: [] }; cards.set(id, c); nodes.push(c); }
-    cards.get(id).members.push(n.id);
-  }
-  const edges = [], seen = new Map();
-  for (const e of p.edges || []) {
-    const a = to.get(e.from), b = to.get(e.to);
-    if (!a || !b || a === b) continue;
-    const key = `${a}->${b}`;
-    // A condition only stays when its own step is still drawn and it is the only link to that card.
-    if (seen.has(key)) { delete seen.get(key).when; continue; }
-    const v = a === e.from && e.when ? { from: a, to: b, when: e.when } : { from: a, to: b };
-    seen.set(key, v);
-    edges.push(v);
-  }
-  return { ...p, nodes, edges, entry: to.get(p.entry) };
-}
 
 // ---------- helpers ----------
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -71,17 +48,21 @@ const SVG = {
   fit: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"></path></svg>',
   prev: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5"></path></svg>',
   next: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>',
+  up: '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l4-4 4 4"></path></svg>',
+  open: '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg>',
   down: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10"></path></svg>',
 };
 
 function ago(iso) {
-  const s = Math.max(0, (Date.now() - (typeof iso === "number" ? iso : Date.parse(iso))) / 1000);
+  const t = typeof iso === "number" ? iso : Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const s = Math.max(0, (Date.now() - t) / 1000);
   if (s < 60) return "now";
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86400)}d`;
 }
-const agoWords = (t) => { const a = ago(t); return a === "now" ? "just now" : `${a.replace("m", " min").replace("h", " h").replace("d", " d")} ago`; };
+const agoWords = (t) => { const a = ago(t); return !a ? "at an unknown time" : a === "now" ? "just now" : `${a.replace("m", " min").replace("h", " h").replace("d", " d")} ago`; };
 
 function clock(sec) {
   if (!Number.isFinite(sec)) return "";
@@ -94,101 +75,10 @@ function clock(sec) {
 const runMs = (r) => Math.max(0, Date.parse(r.endedAt) - Date.parse(r.startedAt));
 
 // ---------- layout ----------
-// Columns by longest path, lanes kept in order left to right, rows by the parents' height.
-function layout(p) {
-  const nodes = p.nodes.map((n) => n.id);
-  const byId = new Map(p.nodes.map((n) => [n.id, n]));
-  const lanes = Array.isArray(p.lanes) && p.lanes.length ? p.lanes : [];
-  const laneOf = (id) => Math.max(0, lanes.indexOf(byId.get(id)?.lane));
-  const edges = (p.edges || []).filter((e) => byId.has(e.from) && byId.has(e.to));
-  const preds = new Map(nodes.map((id) => [id, []]));
-  const succ = new Map(nodes.map((id) => [id, []]));
-  edges.forEach((e, i) => { preds.get(e.to).push({ id: e.from, i }); succ.get(e.from).push({ id: e.to, i }); });
-
-  // topological order (Kahn); nodes left in a cycle keep declaration order
-  const indeg = new Map(nodes.map((id) => [id, 0]));
-  edges.forEach((e) => indeg.set(e.to, indeg.get(e.to) + 1));
-  const order = [];
-  const q = nodes.filter((id) => indeg.get(id) === 0);
-  while (q.length) {
-    const id = q.shift();
-    order.push(id);
-    for (const s of succ.get(id)) { indeg.set(s.id, indeg.get(s.id) - 1); if (indeg.get(s.id) === 0) q.push(s.id); }
-  }
-  for (const id of nodes) if (!order.includes(id)) order.push(id);
-  const pos = new Map(order.map((id, i) => [id, i]));
-  const forward = (e) => pos.get(e.from) < pos.get(e.to);
-
-  const col = new Map(nodes.map((id) => [id, 0]));
-  for (let pass = 0; pass < nodes.length + 2; pass++) {
-    let moved = false;
-    for (const id of order) {
-      for (const pr of preds.get(id)) {
-        if (!forward({ from: pr.id, to: id }) || laneOf(pr.id) > laneOf(id)) continue;
-        if (col.get(id) < col.get(pr.id) + 1) { col.set(id, col.get(pr.id) + 1); moved = true; }
-      }
-    }
-    let prevMax = -1;
-    for (let l = 0; l < Math.max(1, lanes.length); l++) {
-      const inLane = nodes.filter((id) => laneOf(id) === l);
-      if (!inLane.length) continue;
-      for (const id of inLane) if (col.get(id) < prevMax + 1) { col.set(id, prevMax + 1); moved = true; }
-      prevMax = Math.max(...inLane.map((id) => col.get(id)));
-    }
-    if (!moved) break;
-  }
-
-  // rows: each column sorted by the parents' rows, then spread so cards never overlap
-  const y = new Map();
-  const maxCol = Math.max(0, ...col.values());
-  for (let c = 0; c <= maxCol; c++) {
-    const here = order.filter((id) => col.get(id) === c);
-    const ideal = here.map((id) => {
-      const ps = preds.get(id).filter((pr) => y.has(pr.id));
-      const k = ps.length ? Math.min(...ps.map((pr) => pr.i)) : order.indexOf(id);
-      return { id, want: ps.length ? ps.reduce((s, pr) => s + y.get(pr.id), 0) / ps.length : 0, k };
-    });
-    // siblings fan out around their parent in edge order
-    const groups = new Map();
-    for (const it of ideal) { const g = groups.get(it.want) || []; g.push(it); groups.set(it.want, g); }
-    for (const g of groups.values()) g.sort((a, b) => a.k - b.k).forEach((it, i) => { it.want += (i - (g.length - 1) / 2) * ROW; });
-    ideal.sort((a, b) => a.want - b.want || a.k - b.k);
-    let last = -Infinity;
-    const placed = ideal.map((it) => { const v = Math.max(it.want, last + ROW); last = v; return { id: it.id, v, want: it.want }; });
-    const drift = placed.reduce((s, it) => s + (it.v - it.want), 0) / (placed.length || 1);
-    placed.forEach((it) => y.set(it.id, it.v - drift));
-  }
-  // the top card sits at TOP
-  const top = Math.min(...y.values());
-  const xy = new Map(nodes.map((id) => [id, { x: LEFT + col.get(id) * COL, y: TOP + y.get(id) - top }]));
-
-  const all = [...xy.values()];
-  const width = Math.max(...all.map((v) => v.x)) + NODE_W + LEFT;
-  const bottom = Math.max(...all.map((v) => v.y)) + NODE_H;
-  const height = bottom + 32 + 16;
-  const bands = lanes.map((name, l) => {
-    const ids = nodes.filter((id) => laneOf(id) === l);
-    if (!ids.length) return null;
-    const xs = ids.map((id) => xy.get(id).x);
-    const left = Math.min(...xs) - 16;
-    return { name, left, width: Math.max(...xs) - Math.min(...xs) + NODE_W + 32, ids };
-  }).filter(Boolean);
-  return { xy, width, height, bandHeight: bottom + 32 - 16, bands };
-}
-
-function edgePath(a, b) {
-  const sx = a.x + NODE_W, sy = a.y + NODE_H / 2, tx = b.x, ty = b.y + NODE_H / 2;
-  if (tx <= sx) {
-    const dy = Math.max(sy, ty) + NODE_H;
-    return { d: `M${sx} ${sy} C${sx + 60} ${dy} ${tx - 60} ${dy} ${tx} ${ty}`, cx: (sx + tx) / 2, cy: dy - 20 };
-  }
-  if (sy === ty) return { d: `M${sx} ${sy} L${tx} ${ty}`, cx: (sx + tx) / 2, cy: sy };
-  // Long edges run level, then bend in the last gap, so they do not cut through cards on the way.
-  const bx = tx - (COL - NODE_W);
-  const mx = (Math.max(sx, bx) + tx) / 2;
-  const lead = bx > sx ? ` L${bx} ${sy}` : "";
-  return { d: `M${sx} ${sy}${lead} C${mx} ${sy} ${mx} ${ty} ${tx} ${ty}`, cx: mx, cy: (sy + ty) / 2 };
-}
+const narrow = () => window.innerWidth < 600;
+// A map wider than about 1.6 screens stacks its lanes as rows. The window decides, not the panels,
+// so opening a panel never reshuffles the map.
+const layout = (p) => layoutAt(p, { wrapAt: (window.innerWidth - 48) * 1.6 });
 
 // ---------- derived data ----------
 const pipeline = () => S.data?.pipeline;
@@ -197,10 +87,12 @@ const isGhostRun = (r) => r.path.some((id) => !pipeline().nodes.some((n) => n.id
 
 function outcome(path, run, p = pipeline()) {
   const byId = new Map(p.nodes.map((n) => [n.id, n]));
+  // A run can be caught between "started" and its first step.
+  if (!path.length && !(run && run.status === "failed")) return run && run.status === "running" ? "running · not at a step yet" : "no steps recorded";
   if (run && run.status === "failed") {
     const at = Object.keys(run.errors)[0] || path[path.length - 1];
     const code = run.errors[at];
-    return `failed · ${nodeName(at, p)}${code && code !== "failed" ? ` ${code}` : ""}`;
+    return `failed${at ? ` · ${nodeName(at, p)}` : ""}${code && code !== "failed" ? ` ${code}` : ""}`;
   }
   if (run && run.status === "running") return `running · ${nodeName(path[path.length - 1], p)}`;
   let last = path[path.length - 1];
@@ -220,9 +112,10 @@ function filteredRuns() {
   return runs;
 }
 
+// The run on the canvas is always one from the list beside it. An empty filter picks nothing.
 function pickedRun() {
-  const runs = S.data?.runs || [];
-  return runs.find((r) => r.runId === S.picked) || filteredRuns()[0] || runs[0] || null;
+  const list = filteredRuns();
+  return list.find((r) => r.runId === S.picked) || list[0] || null;
 }
 
 function defaultStep(run) {
@@ -249,28 +142,36 @@ function drafted(p, d) {
 }
 
 // ---------- rendering ----------
-function topBar() {
-  const p = pipeline();
-  const proj = S.projects.find((x) => x.id === S.project);
+function checkStatus() {
   const anchors = S.data?.check?.anchors || [];
   const bad = anchors.filter((a) => ["missing-file", "missing-symbol", "no-repo"].includes(a.status)).length;
   const okCount = anchors.filter((a) => a.status === "ok").length;
   const schemaErr = S.data?.check?.errors?.length || 0;
-  let check;
-  if (S.loading) check = `<span role="status">${SVG.spin}Checking code anchors</span>`;
-  else if (S.error) check = `<span role="status" class="err">${esc(S.error)}</span>`;
-  else if (schemaErr) check = `<span role="status" class="red">${schemaErr} map ${schemaErr === 1 ? "error" : "errors"}</span>`;
-  else if (bad) check = `<span role="status" class="red">${bad} of ${anchors.length} anchors broken</span>`;
-  else check = `<span role="status">${okCount} of ${anchors.length} anchors ok</span>`;
+  if (S.loading) return `<span role="status">${SVG.spin}Checking code anchors</span>`;
+  if (S.error) return `<span role="status" class="err">${esc(S.error)}</span>`;
+  if (schemaErr) return `<span role="status" class="red">${schemaErr} map ${schemaErr === 1 ? "error" : "errors"}</span>`;
+  if (bad) return `<span role="status" class="red">${bad} of ${anchors.length} anchors broken</span>`;
+  return `<span role="status">${okCount} of ${anchors.length} anchors ok</span>`;
+}
 
-  const projMenu = S.menu === "project" ? `<ul class="menu" role="listbox" aria-label="Projects">${S.projects.map((x) => `<li><button type="button" role="option" aria-selected="${x.id === S.project}" data-act="set-project" data-arg="${esc(x.id)}"><span>${esc(x.id)}</span><span class="sub">${esc(x.name)} · ${x.pipelineCount} ${x.pipelineCount === 1 ? "pipeline" : "pipelines"}</span></button></li>`).join("")}</ul>` : "";
-  const pipeMenu = S.menu === "pipeline" ? `<ul class="menu" role="listbox" aria-label="Pipelines">${S.manifestPipelines.map((x) => `<li><button type="button" role="option" aria-selected="${x.id === S.pipelineId}" data-act="set-pipeline" data-arg="${esc(x.id)}"><span>${esc(x.id)}</span><span class="sub">${esc(x.name || "")}</span></button></li>`).join("")}</ul>` : "";
+function topBar() {
+  const p = pipeline();
+  const proj = S.projects.find((x) => x.id === S.project);
+  const small = narrow();
+  const projItems = S.projects.map((x) => `<li><button type="button" role="option" aria-selected="${x.id === S.project}" data-act="set-project" data-arg="${esc(x.id)}"><span>${esc(x.id)}</span><span class="sub">${esc(x.name || "")} · ${x.pipelineCount} ${x.pipelineCount === 1 ? "pipeline" : "pipelines"}</span></button></li>`).join("");
+  const pipeItems = S.manifestPipelines.map((x) => `<li><button type="button" role="option" aria-selected="${x.id === S.pipelineId}" data-act="set-pipeline" data-arg="${esc(x.id)}"><span>${esc(x.id)}</span><span class="sub">${esc(x.name || "")}</span></button></li>`).join("");
+  const pick = (key, label, text, sub, items, aria) => `<div class="menu-wrap"><button type="button" class="pick-btn" aria-haspopup="listbox" aria-expanded="${S.menu === key}" data-act="menu" data-arg="${key}">${label ? `<span class="lbl">${label}</span>` : ""}<span class="val">${esc(text)}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ""}${SVG.chev}</button>${S.menu === key ? `<ul class="menu" role="listbox" aria-label="${aria}">${items}</ul>` : ""}</div>`;
+  const projId = proj?.id || S.project || "", pipeId = p?.id || S.pipelineId || "";
+  // Phone: one picker for both, so the top bar stays two rows. The anchor count moves to the footer.
+  const pickers = small
+    ? pick("both", "", `${projId} · ${pipeId}`, "", `<li class="menu-h" role="presentation">Pipelines of ${esc(projId)}</li>${pipeItems}<li class="menu-h" role="presentation">Projects</li>${projItems}`, "Pipelines and projects")
+    : pick("project", "project", projId, "", projItems, "Projects") + pick("pipeline", "pipeline", pipeId, p?.name || "", pipeItems, "Pipelines");
   const seg = ["map", "runs", "draft"].map((v) => `<button type="button" aria-pressed="${S.view === v}" data-act="view" data-arg="${v}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("");
+  const check = small && S.data && !S.loading && !S.error ? "" : checkStatus();
   return `<header class="bar">
     <div class="row">
       <span class="brand">XPM</span>
-      <div class="menu-wrap"><button type="button" class="pick-btn" aria-haspopup="listbox" aria-expanded="${S.menu === "project"}" data-act="menu" data-arg="project"><span class="lbl">project</span><span>${esc(proj?.id || S.project || "")}</span>${SVG.chev}</button>${projMenu}</div>
-      <div class="menu-wrap"><button type="button" class="pick-btn" aria-haspopup="listbox" aria-expanded="${S.menu === "pipeline"}" data-act="menu" data-arg="pipeline"><span class="lbl">pipeline</span><span>${esc(p?.id || S.pipelineId || "")}</span><span class="sub">${esc(p?.name || "")}</span>${SVG.chev}</button>${pipeMenu}</div>
+      ${pickers}
     </div>
     <div class="seg" role="group" aria-label="View">${seg}</div>
     <div class="status">${setupButton()}${check}${isLive() ? '<span><span class="dot live"></span>Live</span>' : ""}</div>
@@ -327,7 +228,7 @@ function footer(states, note, zoomable = true, extra = "") {
   return `<footer class="bar">
     ${zoomable ? `<div class="zoom"><button type="button" aria-label="Zoom out" data-act="zoom" data-arg="-1">${SVG.minus}</button><span class="pct" aria-label="Zoom ${pct} percent">${pct}%</span><button type="button" aria-label="Zoom in" data-act="zoom" data-arg="1">${SVG.plus}</button><button type="button" class="fit" data-act="fit">${SVG.fit}Fit</button></div>` : "<span></span>"}${extra}
     <ul class="legend" aria-label="States">${[...states].map((s) => items[s]).join("")}</ul>
-    <span class="muted">${esc(note)}</span>
+    <span class="muted foot-note">${narrow() && S.data && !S.loading && !S.error ? checkStatus() : ""}<span>${esc(note)}</span></span>
   </footer>`;
 }
 
@@ -339,7 +240,7 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
   for (const e of p.edges || []) {
     const a = L.xy.get(e.from), b = L.xy.get(e.to);
     if (!a || !b || e.ghostHop) continue;
-    const g = edgePath(a, b);
+    const g = L.routes.get(`${e.from}->${e.to}`) || edgePath(a, b);
     const s = edgeLook(e);
     paths += `<path d="${g.d}" stroke="${s.stroke}" stroke-width="${s.width}"${s.dash ? ' stroke-dasharray="4 3"' : ""}></path>`;
     const label = e.when ? `${e.when.decision} = ${e.when.equals}` : deciding.has(e.from) ? "else" : "";
@@ -348,7 +249,7 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
   const bands = L.bands.filter((b) => !(b.ids.length === 1 && byId.get(b.ids[0])?.kind === "lane")).map((b) => {
     const nNew = b.ids.filter((id) => byId.get(id)?.draft).length;
     const count = `${b.ids.length} ${b.ids.length === 1 ? "step" : "steps"}${nNew ? `, ${nNew} new` : ""}`;
-    return `<div class="band" style="left:${b.left}px;top:16px;width:${b.width}px;height:${L.bandHeight}px"></div>${S.view === "map" && S.lens === "overview" ? `<button type="button" class="band-h fold" style="left:${b.left + 8}px;top:20px" data-act="fold-lane" data-arg="${esc(b.name)}" aria-label="Fold the ${esc(b.name)} lane">${esc(b.name.toUpperCase())} <span class="dim">· ${count} · fold</span></button>` : `<span class="band-h" style="left:${b.left + 16}px;top:30px">${esc(b.name.toUpperCase())} <span class="dim">· ${count}</span></span>`}`;
+    return `<div class="band" style="left:${b.left}px;top:${b.top}px;width:${b.width}px;height:${b.height}px"></div>${S.view === "map" && S.lens === "overview" ? `<button type="button" class="band-h fold" style="left:${b.left + 8}px;top:${b.top + 4}px" data-act="fold-lane" data-arg="${esc(b.name)}" aria-expanded="true" aria-label="Fold the ${esc(b.name)} lane">${esc(b.name.toUpperCase())} <span class="dim">· ${count}</span><span class="cue">${SVG.up}fold</span></button>` : `<span class="band-h" style="left:${b.left + 16}px;top:${b.top + 14}px">${esc(b.name.toUpperCase())} <span class="dim">· ${count}</span></span>`}`;
   }).join("");
   const cards = [...L.xy.keys()].map((id) => {
     const n = byId.get(id) || { id, name: id, kind: "unknown" };
@@ -357,7 +258,7 @@ function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
     return `<button type="button" class="node ${v.cls || ""}" style="left:${x}px;top:${y}px" data-act="${v.act || "node"}" data-arg="${esc(v.arg ?? id)}" aria-label="${esc(v.aria)}"${v.expanded != null ? ` aria-expanded="${v.expanded}"` : ""}>
       <span class="port in" aria-hidden="true"></span><span class="port out" aria-hidden="true"></span>
       ${v.live ? '<span class="live-dot" aria-hidden="true"></span>' : ""}
-      <span class="k">${icon(v.kind || n.kind)}<span>${esc(v.kindLabel ?? (v.kind || n.kind))}</span><span class="flag">${esc(v.flag || "")}</span></span>
+      <span class="k">${icon(v.kind || n.kind)}<span>${esc(v.kindLabel ?? (v.kind || n.kind))}</span><span class="flag">${v.cue || ""}${esc(v.flag || "")}</span></span>
       <span class="nm">${esc(n.name || id)}</span>
       <span class="st">${esc(v.stat || "")}</span>
     </button>`;
@@ -378,7 +279,7 @@ function mapStat(id) {
 
 function liveAt() {
   const set = new Set();
-  for (const r of S.data?.runs || []) if (r.status === "running") set.add(r.path[r.path.length - 1]);
+  for (const r of S.data?.runs || []) if (r.status === "running" && r.path.length) set.add(r.path[r.path.length - 1]);
   return set;
 }
 
@@ -399,8 +300,9 @@ function viewMap() {
   const full = pipeline();
   if (!S.lens) {
     // Overview first when every step would not fit at a readable size.
+    // The test is the side-by-side width: a map that long is a lot to take in, even wrapped into rows.
     const room = window.innerWidth - (S.panelNode ? 340 : 0) - 48;
-    S.lens = (full.lanes || []).length > 1 && layout(full).width * 0.55 > room ? "overview" : "all";
+    S.lens = (full.lanes || []).length > 1 && layoutAt(full).width * 0.55 > room ? "overview" : "all";
   }
   const p = S.lens === "overview" ? foldLanes(full, S.openLanes) : full;
   const L = layout(p);
@@ -411,7 +313,7 @@ function viewMap() {
     const st = n.members.map((id) => S.data.overlay.nodes[id] || {});
     const failures = st.reduce((a, x) => a + (x.failures || 0), 0);
     const into = Math.max(0, ...st.map((x) => x.hits || 0));
-    const v = { act: "open-lane", arg: n.lane, kindLabel: "lane", flag: "open", cls: "", stat: `${n.members.length} steps${into ? ` · ${into} hits` : ""}`, expanded: false };
+    const v = { act: "open-lane", arg: n.lane, kindLabel: "lane", flag: "open", cue: SVG.open, cls: "", stat: `${n.members.length} steps${into ? ` · ${into} hits` : ""}`, expanded: false };
     if (failures) { v.cls = "failing"; v.flag = `${failures} failed`; states.add("failing"); }
     else if (st.every((x) => x.state === "cold")) { v.cls = "cold"; states.add("cold"); }
     v.aria = `${n.name} lane, ${v.stat}${failures ? `, ${failures} failed` : ""}, tap to open`;
@@ -422,8 +324,11 @@ function viewMap() {
   const note = `hits and median time · last ${S.data.runs.length} runs · updated ${agoWords(S.fetchedAt)}`;
   const strip = setupStrips() + (ghosts.length ? `<div class="strip"><div class="row"><span class="sq-ghost"></span><span>${ghosts.length} ${ghosts.length === 1 ? "step" : "steps"} ran that the map does not know: ${ghosts.map((g) => `<b>${esc(g.id)}</b> (${g.hits} runs)`).join(", ")}</span></div><button type="button" class="btn" data-act="view" data-arg="runs" data-filter="ghost">See them in Runs</button></div>` : "");
   if (ghosts.length) states.add("ghost");
+  // Events the reader refused or cleaned: said once, quietly, so a writer that sends too much gets noticed.
+  const rej = S.data.rejectedEvents || 0, scr = S.data.scrubbedDecisions || 0;
+  const cleaned = rej || scr ? `<div class="strip quiet"><div class="row"><span class="muted">${[rej ? `${rej} ${rej === 1 ? "event line was" : "event lines were"} unreadable and skipped` : "", scr ? `${scr} decision ${scr === 1 ? "value was" : "values were"} not a known label and ${scr === 1 ? "was" : "were"} replaced` : ""].filter(Boolean).join(" · ")}. See "Events" in the README.</span></div></div>` : "";
   const lens = (full.lanes || []).length > 1 ? `<div class="seg" role="group" aria-label="Lens"><button type="button" aria-pressed="${S.lens === "overview"}" data-act="lens" data-arg="overview">Overview</button><button type="button" aria-pressed="${S.lens === "all"}" data-act="lens" data-arg="all">All steps</button></div>` : "";
-  return `<div class="body"><main class="main">${strip}${body}${footer(states, note, true, lens)}</main>${S.panelNode ? nodePanel(S.panelNode) : ""}</div>`;
+  return `<div class="body"><main class="main">${strip}${cleaned}${body}${footer(states, note, true, lens)}</main>${S.panelNode ? nodePanel(S.panelNode) : ""}</div>`;
 }
 
 function nodePanel(id) {
@@ -448,6 +353,15 @@ function viewRuns() {
   const runs = S.data.runs;
   if (!runs.length) return `<div class="body"><main class="main"><div class="empty"><b>No runs recorded yet.</b><span class="muted">Runs appear when the product writes events to events/${esc(S.project)}/. See "Events" in the README.</span></div>${footer(new Set(), `updated ${agoWords(S.fetchedAt)}`, false)}</main></div>`;
   const run = pickedRun();
+  const showRail = S.railOpen ? "" : `<button type="button" class="btn" data-act="rail" data-arg="1">Show runs</button>`;
+  if (!run) {
+    // Nothing in the list, so nothing lit on the canvas: the plain map.
+    const states = new Set();
+    const plain = mapLook(states);
+    const html = canvas(p, layout(p), (n) => ({ ...plain(n), expanded: null }), () => ({ stroke: "#4a4a50", width: 1.2 }));
+    return `<div class="body"><main class="main"><div class="strip"><div class="row"><span>No runs match this filter.</span><span class="muted">The map below shows every step, no run lit.</span></div><div class="row"><button type="button" class="btn" data-act="filter" data-arg="all">Show all ${runs.length}</button>${showRail}</div></div>${html}${footer(states, `updated ${agoWords(S.fetchedAt)}`)}</main>${S.railOpen ? rail(null) : ""}</div>`;
+  }
+  const gone = S.picked && !runs.some((r) => r.runId === S.picked);
   const declared = new Set(p.nodes.map((n) => n.id));
   const ghostIds = run.path.filter((id) => !declared.has(id));
   // Ghost steps get their own column, laid out like a draft step, so no hop runs right to left.
@@ -490,7 +404,7 @@ function viewRuns() {
     const from = run.path[i];
     if (declared.has(id) && declared.has(from)) return;
     const a = L.xy.get(from), b = L.xy.get(id);
-    if (a && b) extra += `<path d="${edgePath(a, b).d}" stroke="#f87171" stroke-width="1.6" stroke-dasharray="4 3"></path>`;
+    if (a && b) extra += `<path d="${(L.routes.get(`${from}->${id}`) || edgePath(a, b)).d}" stroke="#f87171" stroke-width="1.6" stroke-dasharray="4 3"></path>`;
   });
   let endChip = "";
   if (run.status === "failed") {
@@ -505,12 +419,14 @@ function viewRuns() {
   const total = runMs(run);
   const failIdx = Object.keys(run.errors).length ? run.path.indexOf(Object.keys(run.errors)[0]) : -1;
   const channel = p.channel ? ` via ${esc(p.channel)}` : "";
-  const tail = run.status === "failed" ? `failed at step ${failIdx >= 0 ? failIdx + 1 : run.path.length}` : run.status === "running" ? `running, step ${run.path.length}` : `${run.path.length} steps`;
+  const none = !run.path.length;
+  const tail = run.status === "failed" ? (none ? "failed before its first step" : `failed at step ${failIdx >= 0 ? failIdx + 1 : run.path.length}`) : run.status === "running" ? (none ? "running, not at a step yet" : `running, step ${run.path.length}`) : `${run.path.length} steps`;
   const dot = run.status === "failed" ? '<span class="dot fail"></span>' : run.status === "running" ? '<span class="dot live"></span>' : '<span class="dot done"></span>';
   const ghostBtn = ghostIds.length ? `<button type="button" class="btn" data-act="ghost-draft" data-arg="${esc(ghostIds[0])}">Add ${esc(ghostIds[0])} to a draft</button>` : "";
   const strip = `<div class="strip"><div class="row">${dot}<span style="font-weight:600">${run.preview ? `“${esc(run.preview)}”` : '<span class="muted">(no preview)</span>'}</span>
     <span class="muted">${run.sentAt ? `sent ${esc(clock(run.sentAt))}${channel} · ` : ""}run ${esc(short(run.runId))} · ${tail} · ${ms(total)}</span></div>
-    <div class="row">${ghostBtn}${S.railOpen ? "" : `<button type="button" class="btn" data-act="rail" data-arg="1">Show runs</button>`}</div></div>`;
+    ${gone ? `<span class="muted">The run you picked is no longer in the last ${runs.length}. This is the newest.</span>` : ""}
+    <div class="row">${ghostBtn}${showRail}</div></div>`;
 
   const steps = run.path.map((id, i) => {
     const ghost = !declared.has(id);
@@ -518,7 +434,7 @@ function viewRuns() {
   }).join("");
   const endLabel = run.status === "failed" ? "Run failed" : run.status === "running" ? "Running" : "Done";
   const bar = run.path.map((id, i) => `<span class="${!declared.has(id) ? "ghost" : i < step ? "done" : i === step ? "cur" : ""}" style="flex-grow:${Math.max(1, run.durations[id] || 0)}"></span>`).join("");
-  const scrub = `<section class="scrub" aria-label="Step scrubber">
+  const scrub = none ? "" : `<section class="scrub" aria-label="Step scrubber">
     <div class="row"><button type="button" class="icon-btn boxed" aria-label="Previous step" data-act="step" data-arg="${Math.max(0, step - 1)}"${step === 0 ? " disabled" : ""}>${SVG.prev}</button><button type="button" class="icon-btn boxed" aria-label="Next step" data-act="step" data-arg="${Math.min(run.path.length - 1, step + 1)}"${step === run.path.length - 1 ? " disabled" : ""}>${SVG.next}</button>
     <span style="padding-left:6px">Step ${step + 1} of ${run.path.length} · ${esc(nodeName(cur))} · ${ms(run.durations[cur]) || "0 ms"}</span><span class="muted" style="margin-left:auto">0 s to ${ms(total)}</span></div>
     <div class="tbar" aria-hidden="true">${bar}</div>
@@ -555,7 +471,7 @@ function rail(picked) {
 
 function viewDraft() {
   const p = pipeline();
-  if (!S.draft && S.drafts.length === 1 && !S.draftClosed) { setTimeout(() => openDraft(S.drafts[0]), 0); return `<div class="center">${SVG.spin}Opening draft</div>`; }
+  if (!S.draft && S.drafts.length === 1 && !S.draftClosed) { setTimeout(() => { if (!S.draft && S.drafts.length === 1) openDraft(S.drafts[0]); }, 0); return `<div class="center">${SVG.spin}Opening draft</div>`; }
   if (!S.draft) {
     const list = S.drafts.map((d) => `<button type="button" class="btn" data-act="open-draft" data-arg="${esc(d.file)}">${esc(d.name || d.file)}</button>`).join("");
     return `<div class="body"><main class="main"><div class="empty"><b>${S.drafts.length ? "Open a draft" : "No drafts for this pipeline yet."}</b>
@@ -630,6 +546,15 @@ function resultPanel(dp, d, res) {
     </div></section>`;
 }
 
+// A map the engine refused: say why, draw nothing. Drawing a half-read map would show a pipeline that does not exist.
+function viewBroken() {
+  const errs = [...new Set(S.data.check?.errors || [])];
+  const n = errs.length;
+  return `<div class="body"><main class="main"><div class="empty wide"><b class="red">This map cannot be drawn yet.</b>
+    <span class="muted">The pipeline in the manifest has ${n} ${n === 1 ? "problem" : "problems"}. Fix ${n === 1 ? "it" : "them"} in the manifest; this page checks again every 30 seconds.</span>
+    <ul class="errs">${errs.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div>${footer(new Set(), `checked ${agoWords(S.fetchedAt)}`, false)}</main></div>`;
+}
+
 function render() {
   const app = document.getElementById("app");
   const keep = {};
@@ -639,7 +564,9 @@ function render() {
   let body;
   if (!S.data && S.loading) body = `<div class="center">${SVG.spin}Loading pipeline</div>`;
   else if (!S.data) body = `<div class="empty"><b>${esc(S.error || "No pipeline to show.")}</b><span class="muted">A project needs a "pipelines" list in its manifest. See the README.</span><a href="/" class="btn">Back to the project map</a></div>`;
-  else body = S.view === "runs" ? viewRuns() : S.view === "draft" ? viewDraft() : S.view === "setup" ? viewSetup() : viewMap();
+  else if (S.view === "setup") body = viewSetup();
+  else if (!S.data.overlay || S.data.check?.errors?.length) body = viewBroken();
+  else body = S.view === "runs" ? viewRuns() : S.view === "draft" ? viewDraft() : viewMap();
   app.innerHTML = topBar() + body;
 
   app.querySelectorAll("[data-keep]").forEach((el) => { const k = keep[el.dataset.keep]; if (k) { el.scrollLeft = k[0]; el.scrollTop = k[1]; } });
@@ -683,60 +610,83 @@ async function getJson(url, opts) {
   return body;
 }
 
+// Everything that belongs to the pipeline on screen. Cleared on every project or pipeline switch.
+function resetPipeline() {
+  S.data = null; S.error = null; S.drafts = []; S.lens = null; S.openLanes = new Set();
+  S.picked = null; S.step = null; S.panelNode = null; S.changedIds = null;
+  S.draft = null; S.draftClosed = false; S.result = null; S.replaying = false; S.replayError = null;
+  S.userZoomed = false; S.zoom = null;
+  if (S.filter === "changed") S.filter = "all";
+}
+
 async function loadProject(id, wantPipeline) {
-  S.project = id;
-  const m = await getJson(`/api/project/${encodeURIComponent(id)}`);
+  const req = ++S.req;
+  S.project = id; S.pipelineId = null; S.manifestPipelines = []; S.source = null; S.showFiles = false;
+  resetPipeline();
+  S.loading = true;
+  render();
+  let m;
+  try {
+    m = await getJson(`/api/project/${encodeURIComponent(id)}`);
+  } catch (err) {
+    if (req === S.req) { S.loading = false; S.error = err.message; render(); }
+    return;
+  }
+  if (req !== S.req) return;
   S.manifestPipelines = m.pipelines || [];
   S.pipelineId = S.manifestPipelines.some((p) => p.id === wantPipeline) ? wantPipeline : S.manifestPipelines[0]?.id || null;
-  S.lens = null; S.openLanes = new Set(); S.source = null; S.showFiles = false;
-  S.data = null; S.picked = null; S.step = null; S.panelNode = null; S.draft = null; S.result = null; S.changedIds = null; S.userZoomed = false; S.zoom = null;
-  if (S.filter === "changed") S.filter = "all";
   await loadPipeline();
 }
 
+// `quiet` is the 30 s refresh: it starts no new request number, so any switch made meanwhile outdates it.
 async function loadPipeline({ quiet = false } = {}) {
   if (!S.pipelineId) { S.loading = false; S.error = "This project has no pipelines yet."; render(); return; }
+  const req = quiet ? S.req : ++S.req;
   if (!quiet) { S.loading = true; render(); }
   try {
     const base = `/api/project/${encodeURIComponent(S.project)}/pipeline/${encodeURIComponent(S.pipelineId)}`;
     const [data, drafts] = await Promise.all([getJson(base), getJson(`${base}/drafts`)]);
+    if (req !== S.req) return;
     S.data = data; S.drafts = drafts; S.error = null; S.fetchedAt = Date.now();
     if (!quiet || !S.source) loadSource();
     const params = new URLSearchParams(location.search);
     const wantRun = params.get("run");
     if (!quiet && wantRun && !S.picked) { const r = data.runs.find((x) => x.runId.startsWith(wantRun)); if (r) { S.picked = r.runId; S.scrollPicked = true; } }
     const want = params.get("draft");
-    if (!quiet && want && S.view === "draft" && !S.draft) { const d = drafts.find((x) => x.file === want); if (d) setTimeout(() => openDraft(d), 0); }
+    if (!quiet && want && S.view === "draft" && !S.draft) { const d = drafts.find((x) => x.file === want); if (d) setTimeout(() => { if (!S.draft && req === S.req) openDraft(d); }, 0); }
   } catch (err) {
-    S.error = err.message;
+    if (req === S.req) S.error = err.message;
   } finally {
-    S.loading = false;
-    syncUrl();
-    render();
+    if (req === S.req) { S.loading = false; syncUrl(); render(); }
   }
 }
 
 async function loadSource(refresh = false) {
+  const project = S.project;
+  let src;
   try {
-    S.source = await getJson(`/api/project/${encodeURIComponent(S.project)}/source${refresh ? "?refresh=1" : ""}`);
+    src = await getJson(`/api/project/${encodeURIComponent(project)}/source${refresh ? "?refresh=1" : ""}`);
   } catch (err) {
-    S.source = { error: `Setup unavailable: ${err.message}` };
+    src = { error: `Setup unavailable: ${err.message}` };
   }
+  if (project !== S.project) return;
+  S.source = src;
   render();
 }
 
 async function replay() {
   if (!S.draft) return;
+  const req = S.req, draft = S.draft;
+  const mine = () => req === S.req && draft === S.draft;
   S.replaying = true; S.replayError = null; S.resultOpen = true; render();
   try {
-    const { file, ...body } = S.draft;
-    S.result = await getJson(`/api/project/${encodeURIComponent(S.project)}/pipeline/${encodeURIComponent(S.pipelineId)}/simulate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const { file, ...body } = draft;
+    const result = await getJson(`/api/project/${encodeURIComponent(S.project)}/pipeline/${encodeURIComponent(S.pipelineId)}/simulate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (mine()) S.result = result;
   } catch (err) {
-    S.replayError = `Replay refused: ${err.message}`;
-    S.result = null;
+    if (mine()) { S.replayError = `Replay refused: ${err.message}`; S.result = null; }
   } finally {
-    S.replaying = false;
-    render();
+    if (mine()) { S.replaying = false; render(); }
   }
 }
 
@@ -783,7 +733,7 @@ document.addEventListener("click", (ev) => {
   switch (act) {
     case "menu": S.menu = S.menu === arg ? null : arg; break;
     case "set-project": S.menu = null; loadProject(arg); return;
-    case "set-pipeline": S.menu = null; S.lens = null; S.openLanes = new Set(); S.pipelineId = arg; S.userZoomed = false; S.zoom = null; S.picked = null; S.draft = null; S.result = null; loadPipeline(); return;
+    case "set-pipeline": S.menu = null; S.pipelineId = arg; resetPipeline(); loadPipeline(); return;
     case "view": S.view = arg; S.userZoomed = false; if (el.dataset.filter) S.filter = el.dataset.filter; if (arg !== "map") S.panelNode = null; syncUrl(); break;
     case "node": if (S.view === "map") S.panelNode = S.panelNode === arg ? null : arg; break;
     case "close-panel": S.panelNode = null; break;
@@ -801,7 +751,7 @@ document.addEventListener("click", (ev) => {
     case "open-draft": { const d = S.drafts.find((x) => x.file === arg); if (d) openDraft(d); return; }
     case "ghost-draft": ghostDraft(arg); return;
     case "replay": replay(); return;
-    case "discard": S.draftClosed = true; S.draft = null; S.result = null; S.replayError = null; break;
+    case "discard": S.draftClosed = true; S.draft = null; S.result = null; S.replaying = false; S.replayError = null; break;
     case "close-result": S.resultOpen = false; break;
     case "export": exportSpec(); return;
     case "see-changed": S.scrollPicked = true; S.changedIds = new Set(S.result.perRun.filter((r) => r.changed).map((r) => r.runId)); S.filter = "changed"; S.view = "runs"; S.picked = null; S.step = null; S.userZoomed = false; syncUrl(); break;
@@ -815,7 +765,7 @@ document.addEventListener("keydown", (ev) => {
 });
 
 let resizeTimer;
-window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!S.userZoomed) { S.zoom = null; render(); } }, 150); });
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!S.userZoomed) S.zoom = null; render(); }, 150); });
 
 // Fresh data every 30 s while looking at the map or the runs; the footer age updates with it.
 setInterval(() => { if (document.visibilityState === "visible" && S.data && S.view !== "draft" && !S.loading) loadPipeline({ quiet: true }); }, 30000);
@@ -826,7 +776,7 @@ setInterval(() => { if (document.visibilityState === "visible" && S.data && S.vi
   render();
   try {
     const all = await getJson("/api/projects");
-    S.projects = all.filter((p) => p.pipelineCount > 0).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    S.projects = all.filter((p) => p.pipelineCount > 0).sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { numeric: true }));
     const want = q.get("project");
     const first = S.projects.find((p) => p.id === want) || S.projects[0];
     if (!first) { S.loading = false; S.error = "No project has a pipeline yet."; render(); return; }
