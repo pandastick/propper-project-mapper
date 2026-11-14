@@ -102,13 +102,16 @@ Open `http://localhost:3333/pipeline.html` (or the **Pipeline** button on a proj
 - **Runs:** the last 50 runs, newest first, each with what was typed, when the channel received it and the run id. Pick one to light its path, step through it, and see ghost steps the map does not know. `?run=<id>` links straight to a run.
 - **Draft:** a change drawn in dashed blue, replayed against the recorded runs, with the verdict, the runs that change route, and **Export spec**. A ghost step in Runs can become a draft in one tap.
 
-Plain JavaScript, no build step, no new dependencies. Every control is a real button at least 44px tall, scrolling is native, and the page has no touch handlers (safe for Apple Pencil on iPad). On a phone the runs list stacks under the canvas.
+A long pipeline does not become one strip: when the lanes side by side would be much wider than the window, they wrap into rows like words in a paragraph (short lanes share a row), and the lines between rows run in the gaps, never through a card. The **Overview** lens folds each lane into one card; open the lane you want to read. A map the engine refuses is shown as its list of problems, not as a half-drawn canvas.
+
+Plain JavaScript, no build step, no new dependencies. Every control is a real button at least 44px tall, scrolling is native, and the page has no touch handlers (safe for Apple Pencil on iPad). On a phone the runs list stacks under the canvas and one picker holds project and pipeline.
 
 ### Try it
 
 ```bash
 npm install
-npm test                                   # engine tests
+npm test                                   # engine and layout tests
+npm run test:click                         # a headless browser taps through Map, Runs and Draft (needs Chromium, or CHROMIUM=/path)
 node bin/xpm.js check manifests/example-bot.json --repos .xpm-repos.example.json
 node bin/xpm.js runs manifests/example-bot.json --pipeline inbound --events examples/events/example-bot
 node bin/xpm.js simulate manifests/example-bot.json --pipeline inbound \
@@ -381,7 +384,11 @@ xpm/
   public/
     index.html        Shell with 4 view tabs
     app.js            Graph rendering, panels, interactions
+    pipeline.html     Pipeline view: Map, Runs, Draft
+    pipeline.js       The view (state, rendering, actions)
+    pipeline-layout.js  Where every card and line goes (pure, tested in Node)
     style.css         Dark theme styling
+  tests/              node --test; tests/click/ drives a real browser
   extras/
     ppm-tool.5s.sh    SwiftBar menu bar plugin (macOS)
 ```
