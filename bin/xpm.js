@@ -59,8 +59,9 @@ function main() {
   }
 
   const p = pipelineOf(manifest, a.pipeline);
-  const { events, rejected } = xpm.loadEvents(a.events, p.id);
+  const { events, rejected, scrubbed } = xpm.loadEvents(a.events, p.id, { pipeline: p });
   if (rejected.length) console.error(`${rejected.length} event lines rejected (first: ${rejected[0].reason})`);
+  if (scrubbed) console.error(`${scrubbed} decision values dropped or read as "other" (not a label this map names)`);
   const runs = xpm.foldRuns(events);
 
   if (cmd === "runs") {

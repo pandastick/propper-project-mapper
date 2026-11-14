@@ -113,7 +113,7 @@ test("writer: lines are valid events and carry no raw upstream id", () => {
   assert.deepEqual(events[1].metadata.decision, { mode: "on" });
 });
 
-test("spec export is ADHD shaped and names the code to change", () => {
+test("spec export puts the answer first and names the code to change", () => {
   const spec = xpm.draftToSpec(pipeline, draft, xpm.simulate(pipeline, draft, runs));
   const lines = spec.split("\n");
   assert.match(lines[0], /^# Change spec: classifier-first/);
@@ -156,4 +156,64 @@ test("draft: changed conditions route, are named in the spec, and a missing link
   const bad = xpm.simulate(pipeline, { changeEdges: [{ from: "agent", to: "dedupe", when: { decision: "x", equals: "y" } }] }, runs);
   assert.equal(bad.ok, false);
   assert.match(bad.errors[0], /does not exist/);
+});
+
+test("decisions are labels: typed text is dropped on read, and counted", () => {
+  const typed = "please book the dentist for friday";
+  const r = xpm.validateEvent({ runId: "r1", ts: "2026-11-09T00:00:00Z", type: "decision", node: "n", metadata: { decision: { text: typed, "bad key": "x", mode: "planner", long: "x".repeat(33), fast: true, n: 3 } } });
+  assert.deepEqual(r.event.metadata.decision, { mode: "planner", fast: true, n: 3 });
+  assert.equal(r.dropped, 3);
+  assert.equal(JSON.stringify(r.event).includes("dentist"), false);
+});
+
+test("decisions: a value the map does not name is read as other, and the run takes the else link", () => {
+  const line = (decision) => JSON.stringify({ runId: "r1", ts: "2026-11-09T00:00:00Z", type: "decision", node: "mode-gate", pipeline: "inbound", metadata: { decision } });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xpm-dec-"));
+  fs.writeFileSync(path.join(dir, "2026-11-09.jsonl"), [line({ mode: "dentist-friday" }), line({ duplicate: "no", fast: "No" }), line({ mode: "typed words here" })].join("\n"));
+  fs.writeFileSync(path.join(dir, "notes.jsonl"), "not a day file\n");
+  const r = xpm.loadEvents(dir, "inbound", { pipeline });
+  assert.equal(r.rejected.length, 0); // notes.jsonl is not read at all
+  assert.equal(r.scrubbed, 2);
+  assert.deepEqual(r.events[0].metadata.decision, { mode: "other" });
+  assert.deepEqual(r.events[1].metadata.decision, { duplicate: "no", fast: "No" });
+  assert.equal(r.events[2].metadata.decision, undefined);
+  assert.deepEqual([...xpm.decisionValues(pipeline).get("mode")].sort(), ["normal", "planner", "privacy"]);
+  assert.deepEqual(xpm.route(pipeline, { duplicate: "no", mode: "other", fast: "no" }, "r").path, ["receive", "dedupe", "mode-gate", "fast-path", "agent", "reply"]);
+});
+
+test("writer: a decision cannot carry a sentence, and an allowlist maps the rest to other", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xpm-wd-"));
+  const t = createTracer({ dir, pipeline: "p", decisions: { mode: ["normal", "planner"] } });
+  t.decide("r1", "gate", { text: "must not appear", mode: "holiday", fast: true, duplicate: "no" }, { ts: "2026-11-09T00:00:00Z" });
+  t.decide("r1", "gate", "must not appear", { ts: "2026-11-09T00:00:01Z" });
+  const text = fs.readFileSync(path.join(dir, "2026-11-09.jsonl"), "utf-8");
+  assert.doesNotMatch(text, /must not appear|holiday/);
+  assert.deepEqual(JSON.parse(text.split("\n")[0]).metadata.decision, { mode: "other", fast: true, duplicate: "no" });
+  assert.deepEqual(JSON.parse(text.split("\n")[1]).metadata, {});
+});
+
+test("a malformed draft or map is refused with the reason, never thrown", () => {
+  const cases = [
+    { addNodes: 5 }, { removeEdges: [null] }, { changeEdges: [null] }, { addEdges: ["a"] }, [],
+    { addNodes: [{ id: "c", assume: { split: {} } }] }, { addNodes: [{ id: "c", assume: { split: 1, decision: "x" } }] },
+    { addNodes: [{ id: "c", assume: { split: { a: 1 } } }] }, { addNodes: [{ assume: {} }] }, { addNodes: [{ id: "c", assume: { latencyMs: "slow" } }] },
+  ];
+  for (const d of cases) {
+    const r = xpm.simulate(pipeline, d, runs);
+    assert.equal(r.ok, false, JSON.stringify(d));
+    assert.ok(r.errors.length && r.errors.every((e) => typeof e === "string"));
+  }
+  assert.deepEqual(xpm.validateDraft(draft), []);
+  for (const p of [{ id: "x" }, { id: "x", nodes: [{ id: "a", kind: "door" }], edges: 5 }, { id: "x", nodes: [{ id: "a", kind: "door" }], edges: [null] }, { id: "x", nodes: [{ id: "a", kind: "door", values: ["two words"] }] }]) {
+    assert.ok(xpm.validatePipeline(p).length > 0, JSON.stringify(p));
+    assert.equal(xpm.simulate(p, {}, []).ok, false);
+  }
+});
+
+test("check: a symbol that is not all word characters is still found, whole names only", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "xpm-sym-"));
+  fs.writeFileSync(path.join(root, "a.js"), "const $fn = 1;\nhandle.inbound = () => {};\nfunction rerun() {}\n");
+  const node = (symbol) => ({ id: symbol, kind: "door", anchor: { repo: "r", path: "a.js", symbol } });
+  const p = { id: "p", nodes: ["$fn", "handle.inbound", "rerun", "run", "fn", "inbound"].map(node), edges: [] };
+  assert.deepEqual(xpm.checkAnchors(p, { r: root }).map((a) => a.status), ["ok", "ok", "ok", "missing-symbol", "missing-symbol", "ok"]);
 });

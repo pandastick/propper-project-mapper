@@ -4,7 +4,7 @@
     "mirror": { "label": "the committed copy in git", "checkout": "xpm-self", "ref": "HEAD", "paths": ["src"], "prefix": "examples/example-bot" },
     "traces": { "writer": "examples/make-example-events.js", "previews": true },
     "access": { "label": "Synthetic data, nothing private", "public": true },
-    "mapOwner": "xcto",
-    "confirmed": { "by": "xcto", "at": "2026-11-09", "note": "synthetic example" }
+    "mapOwner": "the-owner",
+    "confirmed": { "by": "the-owner", "at": "2026-11-09", "note": "synthetic example" }
   }
 }

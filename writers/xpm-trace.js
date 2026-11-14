@@ -1,6 +1,8 @@
 // XPM trace writer for Node and TypeScript projects. Copy this file in; it has no dependencies.
 // One JSONL line per hop, appended to <dir>/<YYYY-MM-DD>.jsonl.
 // Privacy: only ids, decisions and timings. Never pass message text, user ids or tokens.
+// A decision is a label: one token of up to 32 letters, digits or _ . : / - (no spaces). Anything else is dropped.
+// Use one tracer per pipeline per process: the step counter (seq) lives in the tracer.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -8,6 +10,19 @@ const crypto = require("crypto");
 
 const KEYS = ["decision", "durationMs", "status", "errorCode", "attempt", "model", "tokens", "costUsd", "sentAt"];
 const PREVIEW_MAX = 120;
+const TOKEN = /^[A-Za-z0-9_.:\/-]{1,32}$/;
+
+/** Keep booleans, numbers and token strings. With an allowlist, a value it does not name becomes "other". */
+function cleanDecision(raw, allowed) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!TOKEN.test(k)) continue;
+    if (typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v))) out[k] = v;
+    else if (typeof v === "string" && TOKEN.test(v)) out[k] = allowed && Array.isArray(allowed[k]) && !allowed[k].includes(v) ? "other" : v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 
 /** Hash an upstream id (for example a Telegram update_id) so the raw id never lands on disk. */
 function runIdFor(upstreamId, salt) {
@@ -17,8 +32,9 @@ function runIdFor(upstreamId, salt) {
 /**
  * previews: opt in to keep what the person typed (cut to 120 characters) in <dir>/previews/,
  * apart from the events. Leave it off unless the owner of the data has said yes.
+ * decisions: optional allowlist, for example { mode: ["normal", "planner"] }. Other values are written as "other".
  */
-function createTracer({ dir, pipeline, enabled = true, previews = false }) {
+function createTracer({ dir, pipeline, enabled = true, previews = false, decisions = null }) {
   if (enabled) fs.mkdirSync(dir, { recursive: true });
   const seqs = new Map();
   function emit(runId, type, node, metadata = {}) {
@@ -26,6 +42,11 @@ function createTracer({ dir, pipeline, enabled = true, previews = false }) {
     try {
       const meta = {};
       for (const k of KEYS) if (metadata[k] !== undefined) meta[k] = metadata[k];
+      if ("decision" in meta) {
+        const d = cleanDecision(meta.decision, decisions);
+        if (d) meta.decision = d;
+        else delete meta.decision;
+      }
       const seq = (seqs.get(runId) || 0) + 1;
       seqs.set(runId, seq);
       if (seqs.size > 5000) seqs.delete(seqs.keys().next().value);
@@ -60,4 +81,4 @@ function createTracer({ dir, pipeline, enabled = true, previews = false }) {
   };
 }
 
-module.exports = { createTracer, runIdFor };
+module.exports = { createTracer, runIdFor, cleanDecision };
