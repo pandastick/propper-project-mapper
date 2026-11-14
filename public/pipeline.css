@@ -1,4 +1,4 @@
-/* XPM pipeline view. Colour only for the five states. One radius. */
+/* XPM pipeline view. Colour for two things only: what a step is for (five families) and its state. One radius. */
 :root {
   --ground: #0a0a0b; --dot: #1d1d21; --bar: #0f0f11; --card: #121214; --band: #0d0d0f; --band-line: #1f1f23;
   --line: #26262a; --card-line: #2e2e33; --strong: #3a3a40; --edge: #4a4a50; --done: #6e6e74;
@@ -6,6 +6,8 @@
   --live: #4ade80; --fail: #f87171; --ghost-bg: #140e0e;
   --cold-line: #2a2a2e; --cold-bg: #0e0e10; --cold-ink: #8a8a90;
   --draft: #60a5fa; --draft-bg: #0e1218;
+  /* What a step is for. Kept away from the state colours: red fails, green is live, blue is a draft. */
+  --f-io: #2dd4bf; --f-decide: #fbbf24; --f-ai: #a78bfa; --f-act: #9aa4b2; --f-keep: #f0abfc;
   --r: 6px;
   color-scheme: dark;
   scrollbar-color: #26262a #0a0a0b;
@@ -43,6 +45,8 @@ footer.bar { border-top: 1px solid var(--line); margin-top: auto; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--seg); color: var(--ink); }
 .seg.fill button { flex: 1; padding: 0 8px; }
+.seg.key { max-width: 100%; overflow-x: auto; }
+.seg.key button { display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 11px; white-space: nowrap; }
 
 .status { display: flex; align-items: center; gap: 20px; color: var(--muted); }
 .status > span { display: flex; align-items: center; gap: 8px; }
@@ -87,6 +91,8 @@ footer.bar { border-top: 1px solid var(--line); margin-top: auto; }
 .band { position: absolute; border: 1px solid var(--band-line); border-radius: var(--r); background: var(--band); }
 .band-h { position: absolute; font-size: 11px; letter-spacing: 1.5px; color: var(--muted); text-transform: none; }
 .band-h .dim { letter-spacing: 0; }
+.band-h b { font-weight: 500; color: var(--ink); }
+.band-h .no { display: inline-block; min-width: 18px; margin-right: 8px; padding: 1px 0; border: 1px solid var(--card-line); border-radius: var(--r); text-align: center; letter-spacing: 0; color: var(--ink); background: var(--card); }
 .band-h.fold { min-height: 44px; padding: 0 8px; background: transparent; border: 0; border-radius: var(--r); text-align: left; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .cue, .node .flag { display: inline-flex; align-items: center; gap: 4px; }
 .band-h .cue { padding: 3px 7px; border: 1px solid var(--card-line); border-radius: var(--r); letter-spacing: 0; color: var(--ink); background: var(--card); }
@@ -97,16 +103,24 @@ footer.bar { border-top: 1px solid var(--line); margin-top: auto; }
 
 .node { position: absolute; width: 144px; height: 80px; margin: 0; padding: 9px 11px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--card-line); border-radius: var(--r); background: var(--card); color: var(--ink); text-align: left; }
 .node .port { position: absolute; top: 35px; width: 9px; height: 9px; border-radius: 50%; background: var(--ground); border: 1px solid var(--edge); }
-.node .port.in { left: -5px; } .node .port.out { right: -5px; }
+.node .port.out { right: -5px; }
+.f-io { --fc: var(--f-io); } .f-decide { --fc: var(--f-decide); } .f-ai { --fc: var(--f-ai); } .f-act { --fc: var(--f-act); } .f-keep { --fc: var(--f-keep); }
+.fd { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--fc, var(--strong)); }
+.node[class*=" f-"]::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 4px; border-radius: var(--r) 0 0 var(--r); background: var(--fc); }
+.node[class*=" f-"] { padding-left: 14px; }
+.node[class*=" f-"] .k { color: var(--fc); }
+.node .mix { position: absolute; left: 11px; right: 11px; bottom: 3px; height: 3px; display: flex; gap: 2px; }
+.node .mix i { flex: 1; border-radius: 1px; background: var(--fc, var(--strong)); } .node .mix i.off { opacity: .2; }
 .node .k { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted); }
-.node .flag { margin-left: auto; }
-.node .nm { font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node .flag { margin-left: auto; color: var(--muted); }
+.node .nm { font-size: 12px; line-height: 15px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .node .st { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node .live-dot { position: absolute; right: 10px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 3px var(--ground); }
 .node.path { border-color: var(--strong); } .node.path .port { border-color: var(--done); }
 .node.failing { border-color: var(--fail); } .node.failing .flag { color: var(--fail); }
 .node.cold { border-color: var(--cold-line); background: var(--cold-bg); color: var(--cold-ink); }
 .node.cold .k, .node.cold .st, .node.cold .flag { color: var(--dim); } .node.cold .port { border-color: var(--strong); }
+.node.cold::before { opacity: .4; } .node.ghost::before, .node.draft::before { display: none; }
 .node.current { border-color: var(--ink); background: var(--pick); } .node.current .port, .node.current .flag { border-color: var(--ink); color: var(--ink); }
 .node.current.failing .flag { color: var(--fail); }
 .node.ghost { border: 1px dashed var(--fail); background: var(--ghost-bg); } .node.ghost .k, .node.ghost .flag { color: var(--fail); } .node.ghost .port { border-color: var(--fail); }
@@ -192,5 +206,6 @@ footer.bar { border-top: 1px solid var(--line); margin-top: auto; }
   header.bar .pick-btn { width: 100%; justify-content: space-between; }
   .pick-btn .val { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .seg button { padding: 0 14px; }
+  .seg.key button { padding: 0 8px; gap: 5px; font-size: 10px; flex: 1; justify-content: center; }
   .status { gap: 12px; }
 }

@@ -104,6 +104,8 @@ Open `http://localhost:3333/pipeline.html` (or the **Pipeline** button on a proj
 
 A long pipeline does not become one strip: when the lanes side by side would be much wider than the window, they wrap into rows like words in a paragraph (short lanes share a row), and the lines between rows run in the gaps, never through a card. The **Overview** lens folds each lane into one card; open the lane you want to read. A map the engine refuses is shown as its list of problems, not as a half-drawn canvas.
 
+Colour means two things only. What a step is for: teal for in and out (door, sender), amber for a decision (gate, mode, router, classifier), violet for an AI model, grey for an action (tool, hook), pink for storage (store, queue). And its state: red failing, green live, dashed blue draft, dashed red ghost. The key at the bottom names the families on the map; tap one to single it out. The icon and the kind word say the same thing, so nothing depends on colour alone. Lines carry arrowheads, a line out of a decision reads only the answer (`no`, `yes`), the first step is marked `start` and a step nothing follows `end`, and lanes are numbered in reading order.
+
 Plain JavaScript, no build step, no new dependencies. Every control is a real button at least 44px tall, scrolling is native, and the page has no touch handlers (safe for Apple Pencil on iPad). On a phone the runs list stacks under the canvas and one picker holds project and pipeline.
 
 ### Try it

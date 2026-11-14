@@ -53,6 +53,11 @@ const SVG = {
   down: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10"></path></svg>',
 };
 
+// Colour says what a step is for. Five families, so the map reads at a glance; the icon and the word say it too.
+const FAMILY = { door: "io", sender: "io", gate: "decide", mode: "decide", router: "decide", classifier: "decide", model: "ai", tool: "act", hook: "act", store: "keep", queue: "keep" };
+const FAMILIES = [["io", "In / out"], ["decide", "Decision"], ["ai", "AI"], ["act", "Action"], ["keep", "Storage"]];
+const famLabel = (f) => (FAMILIES.find(([k]) => k === f) || [])[1] || "";
+
 function ago(iso) {
   const t = typeof iso === "number" ? iso : Date.parse(iso);
   if (!Number.isFinite(t)) return "";
@@ -225,8 +230,10 @@ function footer(states, note, zoomable = true, extra = "") {
     cold: '<li><span class="sw cold"></span>cold</li>',
     draft: '<li><span class="sw draft"></span>draft</li>',
   };
+  const fams = new Set((zoomable ? pipeline()?.nodes || [] : []).map((n) => FAMILY[n.kind]).filter(Boolean));
+  const key = fams.size > 1 ? `<div class="seg key" role="group" aria-label="What the colours mean. Tap one to single it out.">${FAMILIES.filter(([f]) => fams.has(f)).map(([f, label]) => `<button type="button" class="f-${f}" aria-pressed="${S.kind === f}" data-act="kind" data-arg="${f}"><i class="fd f-${f}"></i>${label}</button>`).join("")}</div>` : "";
   return `<footer class="bar">
-    ${zoomable ? `<div class="zoom"><button type="button" aria-label="Zoom out" data-act="zoom" data-arg="-1">${SVG.minus}</button><span class="pct" aria-label="Zoom ${pct} percent">${pct}%</span><button type="button" aria-label="Zoom in" data-act="zoom" data-arg="1">${SVG.plus}</button><button type="button" class="fit" data-act="fit">${SVG.fit}Fit</button></div>` : "<span></span>"}${extra}
+    ${zoomable ? `<div class="zoom"><button type="button" aria-label="Zoom out" data-act="zoom" data-arg="-1">${SVG.minus}</button><span class="pct" aria-label="Zoom ${pct} percent">${pct}%</span><button type="button" aria-label="Zoom in" data-act="zoom" data-arg="1">${SVG.plus}</button><button type="button" class="fit" data-act="fit">${SVG.fit}Fit</button></div>` : "<span></span>"}${extra}${key}
     <ul class="legend" aria-label="States">${[...states].map((s) => items[s]).join("")}</ul>
     <span class="muted foot-note">${narrow() && S.data && !S.loading && !S.error ? checkStatus() : ""}<span>${esc(note)}</span></span>
   </footer>`;
@@ -236,43 +243,57 @@ function footer(states, note, zoomable = true, extra = "") {
 function canvas(p, L, look, edgeLook, extras = "", overlayHtml = "") {
   const byId = new Map(p.nodes.map((n) => [n.id, n]));
   const deciding = new Set((p.edges || []).filter((e) => e.when).map((e) => e.from));
+  // What each step is, also for the steps folded inside a lane card.
+  const famOf = new Map([...(pipeline()?.nodes || []), ...p.nodes].map((n) => [n.id, FAMILY[n.kind] || ""]));
+  const heads = new Set();
   let paths = "", chips = "";
   for (const e of p.edges || []) {
     const a = L.xy.get(e.from), b = L.xy.get(e.to);
     if (!a || !b || e.ghostHop) continue;
     const g = L.routes.get(`${e.from}->${e.to}`) || edgePath(a, b);
     const s = edgeLook(e);
-    paths += `<path d="${g.d}" stroke="${s.stroke}" stroke-width="${s.width}"${s.dash ? ' stroke-dasharray="4 3"' : ""}></path>`;
-    const label = e.when ? `${e.when.decision} = ${e.when.equals}` : deciding.has(e.from) ? "else" : "";
-    if (label) chips += `<span class="chip ${s.chip || ""}" style="left:${g.cx}px;top:${g.cy}px">${esc(label)}</span>`;
+    heads.add(s.stroke);
+    paths += `<path d="${g.d}" stroke="${s.stroke}" stroke-width="${s.width}"${s.dash ? ' stroke-dasharray="4 3"' : ""} marker-end="url(#ah-${s.stroke.replace(/[^a-z0-9]/gi, "")})"></path>`;
+    // The step's own question is on its card, so its lines only carry the answer.
+    const full = e.when ? `${e.when.decision} = ${e.when.equals}` : "";
+    const label = e.when ? (byId.get(e.from)?.decides === e.when.decision ? String(e.when.equals) : full) : deciding.has(e.from) ? "else" : "";
+    if (label) chips += `<span class="chip ${s.chip || ""}" style="left:${g.cx}px;top:${g.cy}px"${full ? ` title="${esc(full)}"` : ""}>${esc(label)}</span>`;
   }
   const bands = L.bands.filter((b) => !(b.ids.length === 1 && byId.get(b.ids[0])?.kind === "lane")).map((b) => {
     const nNew = b.ids.filter((id) => byId.get(id)?.draft).length;
     const count = `${b.ids.length} ${b.ids.length === 1 ? "step" : "steps"}${nNew ? `, ${nNew} new` : ""}`;
-    return `<div class="band" style="left:${b.left}px;top:${b.top}px;width:${b.width}px;height:${b.height}px"></div>${S.view === "map" && S.lens === "overview" ? `<button type="button" class="band-h fold" style="left:${b.left + 8}px;top:${b.top + 4}px" data-act="fold-lane" data-arg="${esc(b.name)}" aria-expanded="true" aria-label="Fold the ${esc(b.name)} lane">${esc(b.name.toUpperCase())} <span class="dim">· ${count}</span><span class="cue">${SVG.up}fold</span></button>` : `<span class="band-h" style="left:${b.left + 16}px;top:${b.top + 14}px">${esc(b.name.toUpperCase())} <span class="dim">· ${count}</span></span>`}`;
+    // Lanes are numbered in reading order, which matters once they wrap into rows.
+    const no = (p.lanes || []).indexOf(b.name) + 1;
+    const title = `${no ? `<span class="no">${no}</span>` : ""}<b>${esc(b.name.toUpperCase())}</b> <span class="dim">· ${count}</span>`;
+    return `<div class="band" style="left:${b.left}px;top:${b.top}px;width:${b.width}px;height:${b.height}px"></div>${S.view === "map" && S.lens === "overview" ? `<button type="button" class="band-h fold" style="left:${b.left + 8}px;top:${b.top + 4}px" data-act="fold-lane" data-arg="${esc(b.name)}" aria-expanded="true" aria-label="Fold the ${esc(b.name)} lane">${title}<span class="cue">${SVG.up}fold</span></button>` : `<span class="band-h" style="left:${b.left + 16}px;top:${b.top + 12}px">${title}</span>`}`;
   }).join("");
   const cards = [...L.xy.keys()].map((id) => {
     const n = byId.get(id) || { id, name: id, kind: "unknown" };
     const v = look(n);
     const { x, y } = L.xy.get(id);
-    return `<button type="button" class="node ${v.cls || ""}" style="left:${x}px;top:${y}px" data-act="${v.act || "node"}" data-arg="${esc(v.arg ?? id)}" aria-label="${esc(v.aria)}"${v.expanded != null ? ` aria-expanded="${v.expanded}"` : ""}>
-      <span class="port in" aria-hidden="true"></span><span class="port out" aria-hidden="true"></span>
+    const fams = n.members ? n.members.map((m) => famOf.get(m)) : [FAMILY[v.kind || n.kind] || ""];
+    // The key at the bottom can single out one family: the rest steps back.
+    const away = S.kind && !fams.includes(S.kind) ? " faded" : "";
+    const mix = n.members ? `<span class="mix" aria-hidden="true">${fams.map((f) => `<i class="${f ? `f-${f}` : ""}${S.kind && f !== S.kind ? " off" : ""}"></i>`).join("")}</span>` : "";
+    return `<button type="button" class="node${!n.members && fams[0] ? ` f-${fams[0]}` : ""} ${v.cls || ""}${away}" style="left:${x}px;top:${y}px" data-act="${v.act || "node"}" data-arg="${esc(v.arg ?? id)}" aria-label="${esc(v.aria)}"${v.expanded != null ? ` aria-expanded="${v.expanded}"` : ""}>
+      <span class="port out" aria-hidden="true"></span>
       ${v.live ? '<span class="live-dot" aria-hidden="true"></span>' : ""}
       <span class="k">${icon(v.kind || n.kind)}<span>${esc(v.kindLabel ?? (v.kind || n.kind))}</span><span class="flag">${v.cue || ""}${esc(v.flag || "")}</span></span>
       <span class="nm">${esc(n.name || id)}</span>
-      <span class="st">${esc(v.stat || "")}</span>
+      <span class="st">${esc(v.stat || "")}</span>${mix}
     </button>`;
   }).join("");
   const z = S.zoom || 1;
   return `<div class="scroll" data-keep="canvas"><div class="sizer" style="width:${L.width * z}px;height:${L.height * z}px"><div class="stage" style="width:${L.width}px;height:${L.height}px;transform:scale(${z})">
     ${bands}
-    <svg width="${L.width}" height="${L.height}" viewBox="0 0 ${L.width} ${L.height}" fill="none" aria-hidden="true" style="position:absolute;left:0;top:0">${paths}${extras}</svg>
+    <svg width="${L.width}" height="${L.height}" viewBox="0 0 ${L.width} ${L.height}" fill="none" aria-hidden="true" style="position:absolute;left:0;top:0"><defs>${[...heads].map((c) => `<marker id="ah-${c.replace(/[^a-z0-9]/gi, "")}" viewBox="0 0 9 8" markerWidth="9" markerHeight="8" refX="8.5" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0.5L9 4L0 7.5z" fill="${c}"></path></marker>`).join("")}</defs>${paths}${extras}</svg>
     ${chips}${cards}${overlayHtml}
   </div></div></div>`;
 }
 
 function mapStat(id) {
   const s = S.data?.overlay?.nodes?.[id];
+  if (!S.data?.runs?.length) return ""; // no run recorded yet: "0 hits" on every card says nothing
   if (!s || !s.hits) return "0 hits";
   return `${s.hits} hits${s.medianMs != null ? ` · ${ms(s.medianMs)}` : ""}`;
 }
@@ -285,13 +306,18 @@ function liveAt() {
 
 function mapLook(states) {
   const live = liveAt();
+  const p = pipeline();
+  const leaves = new Set((p.edges || []).map((e) => e.from));
   return (n) => {
     const s = S.data?.overlay?.nodes?.[n.id] || {};
     const v = { stat: mapStat(n.id), cls: "", flag: "", live: live.has(n.id), expanded: S.panelNode === n.id };
     if (s.state === "failing") { v.cls = "failing"; v.flag = `${s.failures} failed`; states.add("failing"); }
     else if (s.state === "cold") { v.cls = "cold"; v.flag = "cold"; states.add("cold"); }
+    // Where a message comes in, and every place its path can stop.
+    else if (n.id === p.entry) v.flag = "start";
+    else if (!leaves.has(n.id)) v.flag = "end";
     if (v.live) states.add("live");
-    v.aria = `${n.name}, ${n.kind}, ${v.stat}${v.flag ? `, ${v.flag}` : ""}${v.live ? ", a run is here now" : ""}`;
+    v.aria = [n.name, n.kind, famLabel(FAMILY[n.kind]), v.stat, v.flag, v.live ? "a run is here now" : ""].filter(Boolean).join(", ");
     return v;
   };
 }
@@ -340,7 +366,7 @@ function nodePanel(id) {
   const s = S.data.overlay.nodes[id] || {};
   const status = !chk ? "" : chk.status === "ok" ? "found in the code" : chk.status === "unanchored" ? "no anchor yet" : `<span class="red">${esc(chk.status.replace("-", " "))}${chk.detail ? `: ${esc(chk.detail)}` : ""}</span>`;
   const rows = [
-    ["kind", esc(n.kind)], ["lane", esc(n.lane || "")], ["owner", esc(n.owner || "")],
+    ["kind", `${FAMILY[n.kind] ? `<i class="fd f-${FAMILY[n.kind]}"></i> ` : ""}${esc(n.kind)}${FAMILY[n.kind] ? ` <span class="muted">· ${famLabel(FAMILY[n.kind]).toLowerCase()}</span>` : ""}`], ["lane", esc(n.lane || "")], ["owner", esc(n.owner || "")],
     ["repo", esc(a.repo || "")], ["file", esc(a.path || "")], ["function", esc(a.symbol || "")], ["code check", status],
     ["decides", esc(n.decides || "")], ["last 50 runs", `${s.hits || 0} hits${s.medianMs != null ? `, median ${ms(s.medianMs)}` : ""}${s.failures ? `, <span class="red">${s.failures} failed</span>` : ""}`],
   ].filter(([, v]) => v);
@@ -613,7 +639,7 @@ async function getJson(url, opts) {
 // Everything that belongs to the pipeline on screen. Cleared on every project or pipeline switch.
 function resetPipeline() {
   S.data = null; S.error = null; S.drafts = []; S.lens = null; S.openLanes = new Set();
-  S.picked = null; S.step = null; S.panelNode = null; S.changedIds = null;
+  S.picked = null; S.step = null; S.panelNode = null; S.changedIds = null; S.kind = null;
   S.draft = null; S.draftClosed = false; S.result = null; S.replaying = false; S.replayError = null;
   S.userZoomed = false; S.zoom = null;
   if (S.filter === "changed") S.filter = "all";
@@ -739,6 +765,7 @@ document.addEventListener("click", (ev) => {
     case "close-panel": S.panelNode = null; break;
     case "toggle-files": S.showFiles = !S.showFiles; break;
     case "setup-refresh": S.source = null; render(); loadSource(true); return;
+    case "kind": S.kind = S.kind === arg ? null : arg; break;
     case "lens": S.lens = arg; S.openLanes = new Set(); S.userZoomed = false; break;
     case "open-lane": S.openLanes.add(arg); S.userZoomed = false; break;
     case "fold-lane": S.openLanes.delete(arg); S.userZoomed = false; break;
